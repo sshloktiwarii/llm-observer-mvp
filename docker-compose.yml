@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Redpanda: Kafka-compatible message broker
+  redpanda:
+    image: docker.redpanda.com/redpanda:latest
+    container_name: redpanda
+    ports:
+      - "9092:9092"  # Kafka API
+      - "9644:9644"  # Admin API
+    environment:
+      REDPANDA_MODE: dev-container
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 512M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr 0.0.0.0:9092
+
+  # TimescaleDB: Time-series database
+  timescaledb:
+    image: timescale/timescaledb:latest-pg14
+    container_name: timescaledb
+    environment:
+      POSTGRES_USER: observer
+      POSTGRES_PASSWORD: observer_pass
+      POSTGRES_DB: llm_events
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+
+  # Grafana: Visualization & dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - timescaledb
+
+  # PgAdmin: Database management UI
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@local.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - timescaledb
+
+volumes:
+  timescale_data:
+  grafana_data:
