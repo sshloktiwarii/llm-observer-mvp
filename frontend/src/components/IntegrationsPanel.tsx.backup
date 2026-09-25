@@ -1,0 +1,187 @@
+'use client';
+
+import { useState } from 'react';
+import {
+  Button
+} from '@/components/ui/button';
+import {
+  Toast
+} from '@/components/ui/toast';
+import { fs } from '@/lib/fs';
+
+export default function IntegrationsPanel() {
+  const [codexConfig, setCodexConfig] = useState('');
+  const [claudeConfig, setClaudeConfig] = useState('');
+  const [codexSaving, setCodexSaving] = useState(false);
+  const [claudeSaving, setClaudeSaving] = useState(false);
+  const [codexError, setCodexError] = useState<string | null>(null);
+  const [claudeError, setClaudeError] = useState<string | null>(null);
+  const [codexSuccess, setCodexSuccess] = useState<boolean | null>(null);
+  const [claudeSuccess, setClaudeSuccess] = useState<boolean | null>(null);
+
+  const loadCodexConfig = async () => {
+    setCodexError(null);
+    setCodexSuccess(null);
+    try {
+      const config = await fs.readFile('/Users/shloktiwari/.codex/config.toml');
+      setCodexConfig(config);
+      setCodexSuccess(true);
+      setTimeout(() => setCodexSuccess(null), 3000);
+    } catch (error) {
+      // File might not exist yet
+      setCodexConfig('');
+      setCodexError('Configuration file not found');
+      setTimeout(() => setCodexError(null), 5000);
+    }
+  };
+
+  const loadClaudeConfig = async () => {
+    setClaudeError(null);
+    setClaudeSuccess(null);
+    try {
+      const env = await fs.readFile('/Users/shloktiwari/.fcc/.env');
+      setClaudeConfig(env);
+      setClaudeSuccess(true);
+      setTimeout(() => setClaudeSuccess(null), 3000);
+    } catch (error) {
+      // File might not exist yet
+      setClaudeConfig('');
+      setClaudeError('Environment file not found');
+      setTimeout(() => setClaudeError(null), 5000);
+    }
+  };
+
+  const saveCodexConfig = async () => {
+    setCodexSaving(true);
+    setCodexError(null);
+    setCodexSuccess(null);
+    try {
+      await fs.writeFile('/Users/shloktiwari/.codex/config.toml', codexConfig);
+      setCodexSuccess(true);
+      setTimeout(() => setCodexSuccess(null), 3000);
+    } catch (error) {
+      setCodexError(`Failed to save: ${error.message}`);
+      setTimeout(() => setCodexError(null), 5000);
+    } finally {
+      setCodexSaving(false);
+    }
+  };
+
+  const saveClaudeConfig = async () => {
+    setClaudeSaving(true);
+    setClaudeError(null);
+    setClaudeSuccess(null);
+    try {
+      await fs.writeFile('/Users/shloktiwari/.fcc/.env', claudeConfig);
+      setClaudeSuccess(true);
+      setTimeout(() => setClaudeSuccess(null), 3000);
+    } catch (error) {
+      setClaudeError(`Failed to save: ${error.message}`);
+      setTimeout(() => setClaudeError(null), 5000);
+    } finally {
+      setClaudeSaving(false);
+    }
+  };
+
+  // Load configs on mount
+  React.useEffect(() => {
+    loadCodexConfig();
+    loadClaudeConfig();
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-card rounded-lg border border-muted/20 p-6 backdrop-blur-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Codex Integration</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadCodexConfig}
+            disabled={codexSaving}
+          >
+            {codexSaving ? 'Saving...' : 'Refresh'}
+          </Button>
+        </div>
+        
+        {codexError && (
+          <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-3 mb-4">
+            {codexError}
+          </div>
+        )}
+        
+        {codexSuccess && (
+          <div className="bg-success/10 border border-success/20 text-success rounded-lg p-3 mb-4">
+            Configuration saved successfully!
+          </div>
+        )}
+        
+        <div className="space-y-2">
+          <label htmlFor="codex-config" className="text-sm font-medium text-muted-foreground">
+            Configuration File (~/.codex/config.toml)
+          </label>
+          <textarea
+            id="codex-config"
+            value={codexConfig}
+            onChange={(e) => setCodexConfig(e.target.value)}
+            className="w-full min-h-[200px] rounded-lg border border-muted/20 bg-muted/50 p-3 text-sm font-mono focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+            disabled={codexSaving}
+          />
+        </div>
+        <Button
+          onClick={saveCodexConfig}
+          disabled={codexSaving || !codexConfig.trim()}
+          className="w-full"
+        >
+          {codexSaving ? 'Saving...' : 'Save Configuration'}
+        </Button>
+      </div>
+
+      <div className="bg-card rounded-lg border border-muted/20 p-6 backdrop-blur-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Claude Code Integration</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadClaudeConfig}
+            disabled={claudeSaving}
+          >
+            {claudeSaving ? 'Saving...' : 'Refresh'}
+          </Button>
+        </div>
+        
+        {claudeError && (
+          <div className="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg p-3 mb-4">
+            {claudeError}
+          </div>
+        )}
+        
+        {claudeSuccess && (
+          <div className="bg-success/10 border border-success/20 text-success rounded-lg p-3 mb-4">
+            Environment saved successfully!
+          </div>
+        )}
+        
+        <div className="space-y-2">
+          <label htmlFor="claude-config" className="text-sm font-medium text-muted-foreground">
+            Environment File (~/.fcc/.env)
+          </label>
+          <textarea
+            id="claude-config"
+            value={claudeConfig}
+            onChange={(e) => setClaudeConfig(e.target.value)}
+            className="w-full min-h-[200px] rounded-lg border border-muted/20 bg-muted/50 p-3 text-sm font-mono focus:ring-2 focus:ring-primary focus:border-transparent resize-none"
+            disabled={claudeSaving}
+          />
+        </div>
+        <Button
+          onClick={saveClaudeConfig}
+          disabled={claudeSaving || !claudeConfig.trim()}
+          className="w-full"
+        >
+          {claudeSaving ? 'Saving...' : 'Save Environment'}
+        </Button>
+      </div>
+    </div>
+  );
+}
