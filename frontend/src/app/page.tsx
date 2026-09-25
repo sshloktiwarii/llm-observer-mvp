@@ -1,3 +1,4 @@
+import net from 'net';
 import { Pool } from 'pg';
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
@@ -225,6 +226,39 @@ function renderTraceIcon(model: string, status: string, agentId: string) {
   return <Bot className="w-4 h-4" />;
 }
 
+/**
+ * Lightweight async Node.js utility function that attempts a brief TCP socket connection
+ * to localhost on the given port to check service availability without blocking page renders.
+ */
+function checkServiceHealth(port: number, host = 'localhost', timeout = 500): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const socket = net.createConnection({ port, host, timeout }, () => {
+      if (!settled) {
+        settled = true;
+        socket.destroy();
+        resolve(true);
+      }
+    });
+
+    socket.on('error', () => {
+      if (!settled) {
+        settled = true;
+        socket.destroy();
+        resolve(false);
+      }
+    });
+
+    socket.on('timeout', () => {
+      if (!settled) {
+        settled = true;
+        socket.destroy();
+        resolve(false);
+      }
+    });
+  });
+}
+
 export default async function Dashboard() {
   async function purgeDatabase() {
     'use server';
@@ -237,7 +271,21 @@ export default async function Dashboard() {
     revalidatePath('/traces');
   }
 
-  const { metrics, recentEvents, providers, tableSize, dbConnected } = await getDashboardData();
+  const [
+    { metrics, recentEvents, providers, tableSize, dbConnected },
+    [isGoHealthy, isTimescaleHealthy, isRedpandaHealthy, isGrafanaHealthy],
+  ] = await Promise.all([
+    getDashboardData(),
+    Promise.all([
+      checkServiceHealth(8080),
+      checkServiceHealth(5432),
+      checkServiceHealth(9092),
+      checkServiceHealth(3000),
+    ]),
+  ]);
+
+  const allServicesHealthy =
+    isGoHealthy && isTimescaleHealthy && isRedpandaHealthy && isGrafanaHealthy;
 
   // Real Token Economics Calculations
   const promptTokenPct =
@@ -597,8 +645,8 @@ export default async function Dashboard() {
                 <Cpu className="w-4 h-4 text-emerald-400" />
                 System Health
               </h2>
-              <span className="text-[11px] font-mono text-emerald-400">
-                {dbConnected ? 'Cluster 100%' : 'Degraded'}
+              <span className={`text-[11px] font-mono ${allServicesHealthy ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {allServicesHealthy ? 'Cluster 100%' : 'Degraded'}
               </span>
             </div>
 
@@ -616,16 +664,24 @@ export default async function Dashboard() {
                   <div className="p-1.5 rounded-md bg-zinc-900 text-zinc-300 border border-zinc-800 group-hover:text-indigo-400 transition-colors">
                     <Layers className="w-3.5 h-3.5" />
                   </div>
-                  {/* Glowing dot indicator */}
+                  {/* Status dot indicator */}
                   <div className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+                    {isGoHealthy ? (
+                      <>
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+                      </>
+                    ) : (
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500/50"></span>
+                    )}
                   </div>
                 </div>
                 <div className="font-medium text-xs text-zinc-200">Collection Svc</div>
                 <div className="text-[10px] font-mono text-zinc-400 mt-1 flex items-center justify-between">
                   <span>Go Ingestion</span>
-                  <span className="text-emerald-400">:8080</span>
+                  <span className={isGoHealthy ? 'text-emerald-400' : 'text-rose-400'}>
+                    {isGoHealthy ? ':8080' : 'Offline'}
+                  </span>
                 </div>
               </a>
 
@@ -641,25 +697,23 @@ export default async function Dashboard() {
                   <div className="p-1.5 rounded-md bg-zinc-900 text-zinc-300 border border-zinc-800 group-hover:text-indigo-400 transition-colors">
                     <Database className="w-3.5 h-3.5" />
                   </div>
-                  {/* Glowing dot indicator */}
+                  {/* Status dot indicator */}
                   <div className="relative flex h-2.5 w-2.5">
-                    {dbConnected && (
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    {isTimescaleHealthy ? (
+                      <>
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+                      </>
+                    ) : (
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500/50"></span>
                     )}
-                    <span
-                      className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-                        dbConnected
-                          ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50'
-                          : 'bg-zinc-600'
-                      }`}
-                    ></span>
                   </div>
                 </div>
                 <div className="font-medium text-xs text-zinc-200">TimescaleDB</div>
                 <div className="text-[10px] font-mono text-zinc-400 mt-1 flex items-center justify-between">
                   <span>Hypertables</span>
-                  <span className={dbConnected ? 'text-emerald-400' : 'text-zinc-500'}>
-                    {dbConnected ? ':5432' : 'Offline'}
+                  <span className={isTimescaleHealthy ? 'text-emerald-400' : 'text-rose-400'}>
+                    {isTimescaleHealthy ? ':5432' : 'Offline'}
                   </span>
                 </div>
               </a>
@@ -676,16 +730,24 @@ export default async function Dashboard() {
                   <div className="p-1.5 rounded-md bg-zinc-900 text-zinc-300 border border-zinc-800 group-hover:text-indigo-400 transition-colors">
                     <Radio className="w-3.5 h-3.5" />
                   </div>
-                  {/* Glowing dot indicator */}
+                  {/* Status dot indicator */}
                   <div className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+                    {isRedpandaHealthy ? (
+                      <>
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+                      </>
+                    ) : (
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500/50"></span>
+                    )}
                   </div>
                 </div>
                 <div className="font-medium text-xs text-zinc-200">Redpanda</div>
                 <div className="text-[10px] font-mono text-zinc-400 mt-1 flex items-center justify-between">
                   <span>Event Bus</span>
-                  <span className="text-emerald-400">:9092</span>
+                  <span className={isRedpandaHealthy ? 'text-emerald-400' : 'text-rose-400'}>
+                    {isRedpandaHealthy ? ':9092' : 'Offline'}
+                  </span>
                 </div>
               </a>
 
@@ -701,16 +763,24 @@ export default async function Dashboard() {
                   <div className="p-1.5 rounded-md bg-zinc-900 text-zinc-300 border border-zinc-800 group-hover:text-indigo-400 transition-colors">
                     <BarChart3 className="w-3.5 h-3.5" />
                   </div>
-                  {/* Glowing dot indicator */}
+                  {/* Status dot indicator */}
                   <div className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+                    {isGrafanaHealthy ? (
+                      <>
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+                      </>
+                    ) : (
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500/50"></span>
+                    )}
                   </div>
                 </div>
                 <div className="font-medium text-xs text-zinc-200">Grafana</div>
                 <div className="text-[10px] font-mono text-zinc-400 mt-1 flex items-center justify-between">
                   <span>Dashboards</span>
-                  <span className="text-emerald-400">:3000</span>
+                  <span className={isGrafanaHealthy ? 'text-emerald-400' : 'text-rose-400'}>
+                    {isGrafanaHealthy ? ':3000' : 'Offline'}
+                  </span>
                 </div>
               </a>
             </div>
