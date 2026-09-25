@@ -1,14 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
+import os from 'os';
+
+function resolvePath(filePath: string): string {
+  if (filePath.startsWith('~/') || filePath === '~') {
+    return path.join(os.homedir(), filePath.slice(1));
+  }
+  return filePath;
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const filePath = searchParams.get('path');
+  const rawPath = searchParams.get('path');
   
-  if (!filePath) {
+  if (!rawPath) {
     return NextResponse.json({ error: 'Path parameter is required' }, { status: 400 });
   }
+
+  const filePath = resolvePath(rawPath);
 
   try {
     const content = await fs.readFile(filePath, 'utf8');
@@ -30,15 +40,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Path and content are required' }, { status: 400 });
     }
 
+    const resolvedPath = resolvePath(filePath);
+
     // Ensure directory exists
-    const dir = path.dirname(filePath);
+    const dir = path.dirname(resolvedPath);
     try {
       await fs.mkdir(dir, { recursive: true });
     } catch (mkdirError) {
       // Directory might already exist
     }
 
-    await fs.writeFile(filePath, content, 'utf8');
+    await fs.writeFile(resolvedPath, content, 'utf8');
     
     return NextResponse.json({ success: true });
   } catch (error) {

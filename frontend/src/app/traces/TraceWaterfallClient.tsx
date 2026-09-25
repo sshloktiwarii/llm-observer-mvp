@@ -389,85 +389,148 @@ export function TraceWaterfallClient({
         </div>
       </motion.div>
 
-      {/* Master-Detail Grid (4 Cols Left, 8 Cols Right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Trace List (4 cols) */}
+      {/* If no traces exist in the database, show dedicated empty state */}
+      {traces.length === 0 ? (
         <motion.div
           initial={hasMounted ? { opacity: 0, y: 10 } : false}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45 }}
-          className="lg:col-span-4 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/80 rounded-xl overflow-hidden shadow-lg flex flex-col h-[calc(100vh-14rem)]"
+          transition={{ duration: 0.4 }}
+          className="bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/80 rounded-xl p-8 sm:p-12 text-center space-y-6 max-w-2xl mx-auto shadow-xl my-6"
         >
-          {/* Header & Search */}
-          <div className="p-4 border-b border-zinc-800/80 space-y-3 shrink-0">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Trace Stream
-              </span>
-              <span className="text-[11px] font-mono text-zinc-500">
-                {`Showing ${filteredTraces.length} of ${traces.length}`}
-              </span>
-            </div>
+          <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto shadow-sm">
+            <SvgLayers className="w-7 h-7" />
+          </div>
 
-            {/* Search Input */}
-            <div className="relative">
-              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none">
-                <SvgSearch className="w-3.5 h-3.5" />
-              </span>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search agent, trace ID, model..."
-                className="w-full bg-zinc-950/70 border border-zinc-800 rounded-md pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-indigo-500/70 transition-colors font-mono"
-              />
-            </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold tracking-tight text-zinc-100">
+              No Telemetry Traces Recorded Yet
+            </h2>
+            <p className="text-xs text-zinc-400 max-w-md mx-auto leading-relaxed">
+              The TimescaleDB event store is active and healthy. When your AI applications dispatch telemetry payloads to the collector service, live execution waterfalls and token profiling will appear here automatically.
+            </p>
+          </div>
 
-            {/* Quick Status Filter Tabs */}
-            <div className="flex items-center gap-1.5 pt-0.5">
-              <button
-                type="button"
-                onClick={() => setStatusFilter('all')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                  statusFilter === 'all'
-                    ? 'bg-zinc-800 text-zinc-100 border border-zinc-700'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter('success')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                  statusFilter === 'success'
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                Success
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter('error')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
-                  statusFilter === 'error'
-                    ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                Errors
-              </button>
+          <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-4 text-left space-y-2.5 font-mono text-xs">
+            <div className="flex items-center justify-between text-zinc-400 border-b border-zinc-800/60 pb-2">
+              <span className="text-[11px] uppercase tracking-wider font-semibold text-zinc-300">
+                Collector Endpoint (:8080)
+              </span>
+              <span className="text-emerald-400 text-[11px]">Ready for Ingestion</span>
+            </div>
+            <div className="text-zinc-400 text-[11px]">
+              Ingest a test event with cURL or the Python SDK:
+            </div>
+            <div className="bg-zinc-900/90 p-3 rounded text-zinc-200 overflow-x-auto text-[11px] leading-relaxed border border-zinc-800/80 select-all">
+              python3 example_usage.py
             </div>
           </div>
 
-          {/* Scrollable Trace List */}
-          <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/60 custom-scrollbar">
-            {filteredTraces.length === 0 ? (
-              <div className="p-8 text-center text-zinc-500 text-xs">
-                {`No matching traces found for "${searchQuery}"`}
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors shadow-sm cursor-pointer"
+            >
+              Refresh Trace Stream
+            </button>
+            <Link
+              href="/"
+              className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition-colors border border-zinc-700/60 cursor-pointer"
+            >
+              Back to Dashboard
+            </Link>
+          </div>
+        </motion.div>
+      ) : (
+        /* Master-Detail Grid (4 Cols Left, 8 Cols Right) */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left Column: Trace List (4 cols) */}
+          <motion.div
+            initial={hasMounted ? { opacity: 0, y: 10 } : false}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45 }}
+            className="lg:col-span-4 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/80 rounded-xl overflow-hidden shadow-lg flex flex-col h-[calc(100vh-14rem)]"
+          >
+            {/* Header & Search */}
+            <div className="p-4 border-b border-zinc-800/80 space-y-3 shrink-0">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  Trace Stream
+                </span>
+                <span className="text-[11px] font-mono text-zinc-500">
+                  {`Showing ${filteredTraces.length} of ${traces.length}`}
+                </span>
               </div>
-            ) : (
+
+              {/* Search Input */}
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 pointer-events-none">
+                  <SvgSearch className="w-3.5 h-3.5" />
+                </span>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search agent, trace ID, model..."
+                  className="w-full bg-zinc-950/70 border border-zinc-800 rounded-md pl-8 pr-3 py-1.5 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-indigo-500/70 transition-colors font-mono"
+                />
+              </div>
+
+              {/* Quick Status Filter Tabs */}
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('all')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                    statusFilter === 'all'
+                      ? 'bg-zinc-800 text-zinc-100 border border-zinc-700'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('success')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                    statusFilter === 'success'
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  Success
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('error')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                    statusFilter === 'error'
+                      ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  Errors
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable Trace List */}
+            <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/60 custom-scrollbar">
+              {filteredTraces.length === 0 ? (
+                <div className="p-8 text-center text-zinc-400 text-xs space-y-3">
+                  <p className="text-zinc-500">{`No matching traces found for "${searchQuery}"`}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setStatusFilter('all');
+                    }}
+                    className="px-3 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] transition-colors border border-zinc-700/60 cursor-pointer"
+                  >
+                    Reset Filters
+                  </button>
+                </div>
+              ) : (
               filteredTraces.map((trace, index) => {
                 const isSelected = trace.id === activeTrace?.id;
                 const isErr =
@@ -814,12 +877,15 @@ export function TraceWaterfallClient({
                           Input Prompt Snippet
                         </span>
                         <span className="text-[11px] font-mono text-zinc-500" suppressHydrationWarning>
-                          {`${activeTrace.prompt_tokens || Math.round(activeTrace.tokens * 0.65)} prompt tokens`}
+                          {`${activeTrace.prompt_tokens ?? 0} prompt tokens`}
                         </span>
                       </div>
                       <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3.5 font-mono text-xs text-zinc-300 leading-relaxed overflow-x-auto whitespace-pre-wrap select-text">
-                        {activeTrace.request_text ||
-                          `You are an autonomous research and orchestration assistant for enterprise data pipelines. Synthesize the incoming execution logs for trace "${activeTrace.id}" across multi-agent steps. Format the findings with confidence scores, anomaly detection flags, and token optimization recommendations.`}
+                        {activeTrace.request_text ? (
+                          activeTrace.request_text
+                        ) : (
+                          <span className="text-zinc-500 italic">No input prompt text captured for this span.</span>
+                        )}
                       </div>
                     </div>
 
@@ -831,14 +897,15 @@ export function TraceWaterfallClient({
                           {`Model Output Snippet (${activeTrace.model_name})`}
                         </span>
                         <span className="text-[11px] font-mono text-zinc-500" suppressHydrationWarning>
-                          {`${activeTrace.completion_tokens || Math.round(activeTrace.tokens * 0.35)} completion tokens`}
+                          {`${activeTrace.completion_tokens ?? 0} completion tokens`}
                         </span>
                       </div>
                       <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3.5 font-mono text-xs text-zinc-300 leading-relaxed overflow-x-auto whitespace-pre-wrap select-text">
-                        {activeTrace.response_text ||
-                          (isSuccessTrace
-                            ? `Pipeline analysis completed successfully with 0 policy violations detected.\n- Retrieval precision: 99.4%\n- Token efficiency: Nominal\n- Status: 200 OK (${activeTrace.latency_ms}ms total)`
-                            : `Gateway exception: Rate limit reached during token streaming (HTTP 429).\n- Provider quota: Tier 5 Org\n- Recommendation: Enable exponential backoff retry policy on worker router.`)}
+                        {activeTrace.response_text ? (
+                          activeTrace.response_text
+                        ) : (
+                          <span className="text-zinc-500 italic">No output text captured for this span.</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -852,11 +919,13 @@ export function TraceWaterfallClient({
                       {JSON.stringify(
                         {
                           trace_id: activeTrace.id,
-                          span_id: activeTrace.span_id || '6ba7b810-9dad-11d1-80b2-00c04fd430c8',
+                          span_id: activeTrace.span_id || null,
                           agent: activeTrace.agent_name,
                           model: activeTrace.model_name,
                           latency_ms: activeTrace.latency_ms,
                           total_tokens: activeTrace.tokens,
+                          prompt_tokens: activeTrace.prompt_tokens ?? 0,
+                          completion_tokens: activeTrace.completion_tokens ?? 0,
                           estimated_cost_usd: Number(activeTrace.cost_usd),
                           status: activeTrace.status_code,
                           timestamp: activeTrace.timestamp,
@@ -882,6 +951,7 @@ export function TraceWaterfallClient({
           )}
         </motion.div>
       </div>
+      )}
     </div>
   );
 }

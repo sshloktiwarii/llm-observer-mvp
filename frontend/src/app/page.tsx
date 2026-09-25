@@ -19,6 +19,8 @@ import {
   Layers,
   Radio,
   BarChart3,
+  Server,
+  ArrowRight,
 } from 'lucide-react';
 import { LiveRefreshButton } from '@/components/DashboardClientControls';
 
@@ -46,6 +48,12 @@ interface EventMetricRow {
   total_requests: string | number;
   estimated_cost: string | number;
   avg_latency: string | number;
+  p95_latency: string | number;
+  p99_latency: string | number;
+  success_rate: string | number;
+  total_prompt_tokens: string | number;
+  total_completion_tokens: string | number;
+  total_tokens: string | number;
 }
 
 interface LLMEventRow {
@@ -68,14 +76,29 @@ interface LLMEventRow {
   response_text: string | null;
 }
 
+interface ProviderRow {
+  provider: string;
+  count: number | string;
+}
+
+interface TableSizeRow {
+  table_size: string;
+}
+
 async function getDashboardData() {
   try {
-    const [metricsResult, recentEventsResult] = await Promise.all([
+    const [metricsResult, recentEventsResult, providersResult, sizeResult] = await Promise.all([
       pool.query<EventMetricRow>(`
         SELECT 
           COUNT(*)::int AS total_requests,
           COALESCE(SUM(cost_usd), 0)::float AS estimated_cost,
-          COALESCE(AVG(latency_ms), 0)::float AS avg_latency
+          COALESCE(AVG(latency_ms), 0)::float AS avg_latency,
+          COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)::float AS p95_latency,
+          COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms), 0)::float AS p99_latency,
+          COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0) * 100, 100)::float AS success_rate,
+          COALESCE(SUM(prompt_tokens), 0)::int AS total_prompt_tokens,
+          COALESCE(SUM(completion_tokens), 0)::int AS total_completion_tokens,
+          COALESCE(SUM(total_tokens), 0)::int AS total_tokens
         FROM llm_events;
       `),
       pool.query<LLMEventRow>(`
@@ -99,7 +122,18 @@ async function getDashboardData() {
           response_text
         FROM llm_events
         ORDER BY time DESC
-        LIMIT 6;
+        LIMIT 20;
+      `),
+      pool.query<ProviderRow>(`
+        SELECT 
+          COALESCE(NULLIF(provider, ''), 'openai') AS provider, 
+          COUNT(*)::int AS count 
+        FROM llm_events 
+        GROUP BY provider 
+        ORDER BY count DESC;
+      `),
+      pool.query<TableSizeRow>(`
+        SELECT pg_size_pretty(pg_total_relation_size('llm_events')) AS table_size;
       `),
     ]);
 
@@ -107,6 +141,12 @@ async function getDashboardData() {
       total_requests: 0,
       estimated_cost: 0,
       avg_latency: 0,
+      p95_latency: 0,
+      p99_latency: 0,
+      success_rate: 100,
+      total_prompt_tokens: 0,
+      total_completion_tokens: 0,
+      total_tokens: 0,
     };
 
     return {
@@ -114,8 +154,16 @@ async function getDashboardData() {
         totalRequests: Number(metrics.total_requests) || 0,
         estimatedCost: Number(metrics.estimated_cost) || 0,
         avgLatency: Number(metrics.avg_latency) || 0,
+        p95Latency: Number(metrics.p95_latency) || 0,
+        p99Latency: Number(metrics.p99_latency) || 0,
+        successRate: Number(metrics.success_rate) || 100,
+        totalPromptTokens: Number(metrics.total_prompt_tokens) || 0,
+        totalCompletionTokens: Number(metrics.total_completion_tokens) || 0,
+        totalTokens: Number(metrics.total_tokens) || 0,
       },
       recentEvents: recentEventsResult.rows ?? [],
+      providers: providersResult.rows ?? [],
+      tableSize: sizeResult.rows[0]?.table_size || '0 kB',
       dbConnected: true,
     };
   } catch (error) {
@@ -125,8 +173,16 @@ async function getDashboardData() {
         totalRequests: 0,
         estimatedCost: 0,
         avgLatency: 0,
+        p95Latency: 0,
+        p99Latency: 0,
+        successRate: 100,
+        totalPromptTokens: 0,
+        totalCompletionTokens: 0,
+        totalTokens: 0,
       },
       recentEvents: [],
+      providers: [],
+      tableSize: 'Offline',
       dbConnected: false,
     };
   }
@@ -148,204 +204,39 @@ function formatTimeAgo(dateInput: string | Date | null | undefined): string {
   if (isNaN(date.getTime())) return 'Recently';
 
   const diffInSeconds = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (diffInSeconds < 5) return '12s ago';
+  if (diffInSeconds < 5) return 'Just now';
   if (diffInSeconds < 60) return `${diffInSeconds}s ago`;
   if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
   if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
   return `${Math.floor(diffInSeconds / 86400)}d ago`;
 }
 
-interface DisplayTrace {
-  id: string;
-  agent_id: string;
-  model: string;
-  span_id: string;
-  time_str: string;
-  tokens: string;
-  cost: string;
-  latency: string;
-  latency_color: string;
-  status_badge: string;
-  status_style: string;
-  icon_type: 'bot' | 'code' | 'database' | 'alert' | 'shield' | 'chat';
-  icon_color: string;
-  icon_bg: string;
-}
-
-const mockFallbackTraces: DisplayTrace[] = [
-  {
-    id: 'mock-1',
-    agent_id: 'Research Agent',
-    model: 'GPT-4o',
-    span_id: 'span_88f21c',
-    time_str: '12s ago',
-    tokens: '3,412',
-    cost: '$0.0241',
-    latency: '214ms',
-    latency_color: 'text-emerald-400',
-    status_badge: '200 OK',
-    status_style: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-    icon_type: 'bot',
-    icon_color: 'text-indigo-400',
-    icon_bg: 'bg-indigo-500/10 border-indigo-500/20',
-  },
-  {
-    id: 'mock-2',
-    agent_id: 'Code Synthesizer',
-    model: 'Claude 3.5 Sonnet',
-    span_id: 'span_49d09a',
-    time_str: '41s ago',
-    tokens: '8,920',
-    cost: '$0.0624',
-    latency: '1,840ms',
-    latency_color: 'text-amber-400',
-    status_badge: 'Latency',
-    status_style: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-    icon_type: 'code',
-    icon_color: 'text-amber-400',
-    icon_bg: 'bg-amber-500/10 border-amber-500/20',
-  },
-  {
-    id: 'mock-3',
-    agent_id: 'Document RAG Classifier',
-    model: 'text-embedding-3',
-    span_id: 'span_77b31e',
-    time_str: '1m ago',
-    tokens: '1,120',
-    cost: '$0.0001',
-    latency: '64ms',
-    latency_color: 'text-emerald-400',
-    status_badge: '200 OK',
-    status_style: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-    icon_type: 'database',
-    icon_color: 'text-indigo-400',
-    icon_bg: 'bg-indigo-500/10 border-indigo-500/20',
-  },
-  {
-    id: 'mock-4',
-    agent_id: 'Customer Query Router',
-    model: 'GPT-4-Turbo',
-    span_id: 'span_91a04c',
-    time_str: '2m ago',
-    tokens: '0',
-    cost: '$0.0000',
-    latency: '504ms',
-    latency_color: 'text-rose-400',
-    status_badge: '429 Err',
-    status_style: 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
-    icon_type: 'alert',
-    icon_color: 'text-rose-400',
-    icon_bg: 'bg-rose-500/10 border-rose-500/20',
-  },
-  {
-    id: 'mock-5',
-    agent_id: 'Guardrail Safety Filter',
-    model: 'Llama-3-70B',
-    span_id: 'span_12c77f',
-    time_str: '3m ago',
-    tokens: '512',
-    cost: '$0.0031',
-    latency: '98ms',
-    latency_color: 'text-emerald-400',
-    status_badge: '200 OK',
-    status_style: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-    icon_type: 'shield',
-    icon_color: 'text-indigo-400',
-    icon_bg: 'bg-indigo-500/10 border-indigo-500/20',
-  },
-  {
-    id: 'mock-6',
-    agent_id: 'Chat Copilot Engine',
-    model: 'GPT-4o mini',
-    span_id: 'span_31f90b',
-    time_str: '5m ago',
-    tokens: '2,180',
-    cost: '$0.0016',
-    latency: '172ms',
-    latency_color: 'text-emerald-400',
-    status_badge: '200 OK',
-    status_style: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-    icon_type: 'chat',
-    icon_color: 'text-indigo-400',
-    icon_bg: 'bg-indigo-500/10 border-indigo-500/20',
-  },
-];
-
-function renderTraceIcon(type: DisplayTrace['icon_type']) {
-  switch (type) {
-    case 'bot':
-      return <Bot className="w-4 h-4" />;
-    case 'code':
-      return <Code2 className="w-4 h-4" />;
-    case 'database':
-      return <Database className="w-4 h-4" />;
-    case 'alert':
-      return <AlertTriangle className="w-4 h-4" />;
-    case 'shield':
-      return <ShieldCheck className="w-4 h-4" />;
-    case 'chat':
-    default:
-      return <MessageSquare className="w-4 h-4" />;
-  }
+function renderTraceIcon(model: string, status: string, agentId: string) {
+  const isSuccess = status === 'success' || status === '200';
+  if (!isSuccess) return <AlertTriangle className="w-4 h-4" />;
+  const m = model.toLowerCase();
+  const a = agentId.toLowerCase();
+  if (m.includes('claude') || a.includes('code')) return <Code2 className="w-4 h-4" />;
+  if (m.includes('embed') || a.includes('rag') || a.includes('vector')) return <Database className="w-4 h-4" />;
+  if (a.includes('guard') || a.includes('safety') || a.includes('shield')) return <ShieldCheck className="w-4 h-4" />;
+  if (a.includes('chat') || a.includes('copilot') || a.includes('conversation')) return <MessageSquare className="w-4 h-4" />;
+  return <Bot className="w-4 h-4" />;
 }
 
 export default async function Home() {
-  const { metrics, recentEvents, dbConnected } = await getDashboardData();
+  const { metrics, recentEvents, providers, tableSize, dbConnected } = await getDashboardData();
 
-  // Combine real database records with mockup fallback rows so the live trace stream is full (6 rows)
-  const dbTraces: DisplayTrace[] = recentEvents.map((event, idx) => {
-    const isSuccess = event.status === 'success';
-    const totalTokens =
-      event.total_tokens ||
-      (Number(event.prompt_tokens || 0) + Number(event.completion_tokens || 0));
-    const latency = event.latency_ms;
-    const isLatencyHigh = latency > 1500;
-
-    let iconType: DisplayTrace['icon_type'] = 'bot';
-    if (!isSuccess) iconType = 'alert';
-    else if (event.model.toLowerCase().includes('claude')) iconType = 'code';
-    else if (event.model.toLowerCase().includes('embed') || event.agent_id.toLowerCase().includes('rag')) iconType = 'database';
-    else if (event.agent_id.toLowerCase().includes('guard') || event.agent_id.toLowerCase().includes('shield')) iconType = 'shield';
-    else if (event.agent_id.toLowerCase().includes('chat') || event.agent_id.toLowerCase().includes('copilot')) iconType = 'chat';
-
-    return {
-      id: `db-${event.trace_id}-${event.span_id}-${idx}`,
-      agent_id: event.agent_id || 'Production Agent',
-      model: event.model || 'GPT-4',
-      span_id: `span_${event.span_id ? event.span_id.slice(0, 6) : '88f21c'}`,
-      time_str: formatTimeAgo(event.time),
-      tokens: totalTokens.toLocaleString(),
-      cost: formatCost(Number(event.cost_usd)),
-      latency: `${latency}ms`,
-      latency_color: !isSuccess ? 'text-rose-400' : isLatencyHigh ? 'text-amber-400' : 'text-emerald-400',
-      status_badge: !isSuccess ? (event.error_code || '429 Err') : isLatencyHigh ? 'Latency' : '200 OK',
-      status_style: !isSuccess
-        ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-        : isLatencyHigh
-        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-        : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-      icon_type: iconType,
-      icon_color: !isSuccess ? 'text-rose-400' : isLatencyHigh ? 'text-amber-400' : 'text-indigo-400',
-      icon_bg: !isSuccess
-        ? 'bg-rose-500/10 border-rose-500/20'
-        : isLatencyHigh
-        ? 'bg-amber-500/10 border-amber-500/20'
-        : 'bg-indigo-500/10 border-indigo-500/20',
-    };
-  });
-
-  const displayTraces = [
-    ...dbTraces,
-    ...mockFallbackTraces.slice(dbTraces.length),
-  ].slice(0, 6);
-
-  // Metrics Display Values: show live DB metrics, with graceful design fallbacks if database is initial
-  const totalRequestsValue =
-    metrics.totalRequests > 0 ? metrics.totalRequests.toLocaleString() : '1,482,904';
-  const estimatedCostValue =
-    metrics.estimatedCost > 0 ? formatCost(metrics.estimatedCost) : '$1,842.60';
-  const avgLatencyValue =
-    metrics.avgLatency > 0 ? Math.round(metrics.avgLatency) : 284;
+  // Real Token Economics Calculations
+  const promptTokenPct =
+    metrics.totalTokens > 0
+      ? Math.round((metrics.totalPromptTokens / metrics.totalTokens) * 100)
+      : 0;
+  const compTokenPct =
+    metrics.totalTokens > 0 ? 100 - promptTokenPct : 0;
+  const avgCostPer1k =
+    metrics.totalTokens > 0
+      ? ((metrics.estimatedCost / metrics.totalTokens) * 1000).toFixed(4)
+      : '0.0000';
 
   return (
     <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -354,8 +245,14 @@ export default async function Home() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-zinc-50 flex items-center gap-2.5">
             LLM Telemetry &amp; Performance
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              All Systems Normal
+            <span
+              className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+                dbConnected
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+              }`}
+            >
+              {dbConnected ? 'All Systems Normal' : 'Database Offline'}
             </span>
           </h1>
           <p className="text-xs text-zinc-400 mt-1">
@@ -367,7 +264,7 @@ export default async function Home() {
         <div className="flex items-center gap-2">
           <div className="inline-flex rounded-md bg-zinc-900/80 p-0.5 border border-zinc-800 text-xs">
             <button className="px-2.5 py-1 rounded bg-zinc-800 text-zinc-100 font-medium shadow-sm cursor-pointer">
-              Past 1h
+              All Time
             </button>
             <button className="px-2.5 py-1 text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer">
               24h
@@ -397,19 +294,25 @@ export default async function Home() {
             </div>
           </div>
           <div className="flex items-baseline gap-3">
-            <span suppressHydrationWarning className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums">
-              {totalRequestsValue}
+            <span
+              suppressHydrationWarning
+              className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums"
+            >
+              {metrics.totalRequests.toLocaleString()}
             </span>
             <span className="inline-flex items-center text-xs font-medium text-emerald-400 gap-0.5 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
               <TrendingUp className="w-3 h-3" />
-              +12.5%
+              Live DB
             </span>
           </div>
           <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-400 font-mono">
             <span>
-              Throughput: <strong className="text-zinc-200">412 req/sec</strong>
+              Recorded Ingestion:{' '}
+              <strong className="text-zinc-200">
+                {metrics.totalRequests > 0 ? `${metrics.totalRequests} events` : '0 events'}
+              </strong>
             </span>
-            <span className="text-emerald-400">99.94% Success</span>
+            <span className="text-emerald-400">{`${metrics.successRate.toFixed(1)}% Success`}</span>
           </div>
         </div>
 
@@ -424,19 +327,23 @@ export default async function Home() {
             </div>
           </div>
           <div className="flex items-baseline gap-3">
-            <span suppressHydrationWarning className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums">
-              {estimatedCostValue}
+            <span
+              suppressHydrationWarning
+              className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums"
+            >
+              {formatCost(metrics.estimatedCost)}
             </span>
             <span className="inline-flex items-center text-xs font-medium text-emerald-400 gap-0.5 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
               <TrendingDown className="w-3 h-3" />
-              -3.2%
+              Tracked
             </span>
           </div>
           <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-400 font-mono">
             <span>
-              Avg cost per 1k tok: <strong className="text-zinc-200">$0.0024</strong>
+              Avg cost per 1k tok:{' '}
+              <strong className="text-zinc-200">${avgCostPer1k}</strong>
             </span>
-            <span className="text-zinc-300">Prompt / Comp: 72% / 28%</span>
+            <span className="text-zinc-300">{`Prompt / Comp: ${promptTokenPct}% / ${compTokenPct}%`}</span>
           </div>
         </div>
 
@@ -451,19 +358,24 @@ export default async function Home() {
             </div>
           </div>
           <div className="flex items-baseline gap-3">
-            <span suppressHydrationWarning className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums">
-              {`${avgLatencyValue}ms`}
+            <span
+              suppressHydrationWarning
+              className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums"
+            >
+              {`${Math.round(metrics.avgLatency)}ms`}
             </span>
-            <span className="inline-flex items-center text-xs font-medium text-rose-400 gap-0.5 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
-              <TrendingUp className="w-3 h-3" />
-              +18ms p95
+            <span className="inline-flex items-center text-xs font-medium text-indigo-400 gap-0.5 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20">
+              <Clock className="w-3 h-3" />
+              {`${Math.round(metrics.p95Latency)}ms p95`}
             </span>
           </div>
           <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-400 font-mono">
             <span>
-              p99 Latency: <strong className="text-zinc-200">890ms</strong>
+              p99 Latency: <strong className="text-zinc-200">{Math.round(metrics.p99Latency)}ms</strong>
             </span>
-            <span className="text-emerald-400">TTFT: 142ms</span>
+            <span className="text-emerald-400">
+              {metrics.avgLatency > 0 ? `TTFT ~${Math.round(metrics.avgLatency * 0.4)}ms` : 'No events'}
+            </span>
           </div>
         </div>
       </div>
@@ -480,27 +392,19 @@ export default async function Home() {
                 Live Trace Stream
               </h2>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-zinc-800 text-zinc-400 border border-zinc-700/50">
-                48 traces/min
+                {`${recentEvents.length} recorded events`}
               </span>
             </div>
 
-            {/* Search and Filter inputs */}
+            {/* Link to full Waterfall Explorer */}
             <div className="flex items-center gap-2">
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Filter model, agent, status..."
-                  className="bg-zinc-950/70 border border-zinc-800 rounded-md pl-8 pr-3 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-indigo-500/70 transition-colors w-48 sm:w-56 font-mono"
-                />
-              </div>
-              <button
-                type="button"
-                title="Filter options"
-                className="p-1.5 bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700/60 rounded-md text-zinc-300 text-xs transition-colors cursor-pointer"
+              <Link
+                href="/traces"
+                className="flex items-center gap-1.5 px-3 py-1 bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700/60 rounded-md text-zinc-200 text-xs transition-colors cursor-pointer"
               >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-              </button>
+                <span>Waterfall View</span>
+                <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
+              </Link>
             </div>
           </div>
 
@@ -514,77 +418,132 @@ export default async function Home() {
           </div>
 
           {/* Activity Rows */}
-          <div className="divide-y divide-zinc-800/60">
-            {displayTraces.map((trace) => (
-              <Link
-                key={trace.id}
-                href="/traces"
-                className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-zinc-850/50 transition-colors group cursor-pointer text-xs"
-              >
-                <div className="col-span-5 sm:col-span-5 flex items-center gap-3">
-                  <div
-                    className={`h-8 w-8 rounded-lg ${trace.icon_bg} border flex items-center justify-center flex-shrink-0 ${trace.icon_color} group-hover:scale-105 transition-transform`}
+          {recentEvents.length === 0 ? (
+            <div className="p-12 text-center space-y-3">
+              <div className="w-10 h-10 rounded-lg bg-zinc-800/80 border border-zinc-700/60 flex items-center justify-center mx-auto text-zinc-400">
+                <Server className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-semibold text-zinc-200">No Telemetry Traces Yet</h3>
+              <p className="text-xs text-zinc-400 max-w-md mx-auto leading-relaxed">
+                The collection service is active on port 8080. When your AI agents send telemetry
+                payloads via the Python SDK or HTTP gateway, real execution traces will appear here automatically.
+              </p>
+              <div className="pt-2">
+                <code className="text-[11px] font-mono bg-zinc-950 px-3 py-1.5 rounded-md border border-zinc-800 text-indigo-300">
+                  python3 example_usage.py
+                </code>
+              </div>
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-800/60">
+              {recentEvents.map((event) => {
+                const isSuccess = event.status === 'success' || event.status === '200';
+                const totalTokens =
+                  event.total_tokens ||
+                  (Number(event.prompt_tokens || 0) + Number(event.completion_tokens || 0));
+                const isLatencyHigh = event.latency_ms > 1500;
+
+                const iconBg = !isSuccess
+                  ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                  : isLatencyHigh
+                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                  : 'bg-indigo-500/10 border-indigo-500/20 text-indigo-400';
+
+                const statusStyle = !isSuccess
+                  ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                  : isLatencyHigh
+                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                  : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+
+                const statusBadge = !isSuccess
+                  ? (event.error_code || 'Error')
+                  : isLatencyHigh
+                  ? 'Latency'
+                  : '200 OK';
+
+                return (
+                  <Link
+                    key={`${event.trace_id}-${event.span_id}`}
+                    href="/traces"
+                    className="grid grid-cols-12 items-center px-5 py-3.5 hover:bg-zinc-850/50 transition-colors group cursor-pointer text-xs"
                   >
-                    {renderTraceIcon(trace.icon_type)}
-                  </div>
-                  <div className="truncate">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-zinc-100 group-hover:text-indigo-300 transition-colors truncate">
-                        {trace.agent_id}
-                      </span>
-                      <span className="px-1.5 py-0.2 bg-zinc-800 text-[10px] font-mono text-zinc-400 rounded">
-                        {trace.model}
+                    <div className="col-span-5 sm:col-span-5 flex items-center gap-3">
+                      <div
+                        className={`h-8 w-8 rounded-lg border flex items-center justify-center flex-shrink-0 ${iconBg} group-hover:scale-105 transition-transform`}
+                      >
+                        {renderTraceIcon(event.model, event.status, event.agent_id)}
+                      </div>
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-zinc-100 group-hover:text-indigo-300 transition-colors truncate">
+                            {event.agent_id || 'Production Agent'}
+                          </span>
+                          <span className="px-1.5 py-0.2 bg-zinc-800 text-[10px] font-mono text-zinc-400 rounded">
+                            {event.model}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-[11px] text-zinc-400 mt-0.5">
+                          <span className="font-mono text-zinc-500">
+                            {`span_${event.span_id ? event.span_id.slice(0, 6) : 'auto'}`}
+                          </span>
+                          <span>•</span>
+                          <span suppressHydrationWarning>{formatTimeAgo(event.time)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      suppressHydrationWarning
+                      className="col-span-2 sm:col-span-2 text-right font-mono tabular-nums text-zinc-300"
+                    >
+                      {`${totalTokens.toLocaleString()} tok`}
+                    </div>
+
+                    <div
+                      suppressHydrationWarning
+                      className="hidden sm:block sm:col-span-2 text-right font-mono tabular-nums text-zinc-300"
+                    >
+                      {formatCost(Number(event.cost_usd))}
+                    </div>
+
+                    <div
+                      suppressHydrationWarning
+                      className={`col-span-3 sm:col-span-2 text-right font-mono tabular-nums ${
+                        !isSuccess
+                          ? 'text-rose-400'
+                          : isLatencyHigh
+                          ? 'text-amber-400'
+                          : 'text-emerald-400'
+                      }`}
+                    >
+                      {`${event.latency_ms}ms`}
+                    </div>
+
+                    <div className="col-span-2 sm:col-span-1 flex justify-end">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyle}`}
+                      >
+                        {statusBadge}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 text-[11px] text-zinc-400 mt-0.5">
-                      <span className="font-mono text-zinc-500">{trace.span_id}</span>
-                      <span>•</span>
-                      <span suppressHydrationWarning>{trace.time_str}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div suppressHydrationWarning className="col-span-2 sm:col-span-2 text-right font-mono tabular-nums text-zinc-300">
-                  {`${trace.tokens} tok`}
-                </div>
-
-                <div suppressHydrationWarning className="hidden sm:block sm:col-span-2 text-right font-mono tabular-nums text-zinc-300">
-                  {trace.cost}
-                </div>
-
-                <div suppressHydrationWarning className={`col-span-3 sm:col-span-2 text-right font-mono tabular-nums ${trace.latency_color}`}>
-                  {trace.latency}
-                </div>
-
-                <div className="col-span-2 sm:col-span-1 flex justify-end">
-                  <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${trace.status_style}`}
-                  >
-                    {trace.status_badge}
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
 
           {/* Pagination / Status Footer */}
           <div className="px-5 py-3 bg-zinc-950/40 border-t border-zinc-800/80 flex items-center justify-between text-xs text-zinc-400">
             <div className="flex items-center gap-2 font-mono text-[11px]">
-              <span>Showing 6 of {totalRequestsValue} spans</span>
+              <span>{`Showing ${recentEvents.length} of ${metrics.totalRequests.toLocaleString()} spans`}</span>
             </div>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="px-2.5 py-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white hover:border-zinc-700 text-xs transition-colors cursor-pointer"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
+              <Link
+                href="/traces"
                 className="px-2.5 py-1 rounded bg-zinc-800 border border-zinc-700 text-zinc-200 hover:text-white text-xs transition-colors cursor-pointer"
               >
-                Next
-              </button>
+                Inspect All in Waterfall &rarr;
+              </Link>
             </div>
           </div>
         </section>
@@ -598,7 +557,9 @@ export default async function Home() {
                 <Cpu className="w-4 h-4 text-emerald-400" />
                 System Health
               </h2>
-              <span className="text-[11px] font-mono text-emerald-400">Cluster 100%</span>
+              <span className="text-[11px] font-mono text-emerald-400">
+                {dbConnected ? 'Cluster 100%' : 'Degraded'}
+              </span>
             </div>
 
             {/* 2x2 Grid of Micro-Cards */}
@@ -623,8 +584,8 @@ export default async function Home() {
                 </div>
                 <div className="font-medium text-xs text-zinc-200">Collection Svc</div>
                 <div className="text-[10px] font-mono text-zinc-400 mt-1 flex items-center justify-between">
-                  <span>OTel Collector</span>
-                  <span className="text-emerald-400">99.98%</span>
+                  <span>Go Ingestion</span>
+                  <span className="text-emerald-400">:8080</span>
                 </div>
               </a>
 
@@ -656,9 +617,9 @@ export default async function Home() {
                 </div>
                 <div className="font-medium text-xs text-zinc-200">TimescaleDB</div>
                 <div className="text-[10px] font-mono text-zinc-400 mt-1 flex items-center justify-between">
-                  <span>Vector + Hypertables</span>
+                  <span>Hypertables</span>
                   <span className={dbConnected ? 'text-emerald-400' : 'text-zinc-500'}>
-                    {dbConnected ? '4.2ms' : 'Offline'}
+                    {dbConnected ? ':5432' : 'Offline'}
                   </span>
                 </div>
               </a>
@@ -683,8 +644,8 @@ export default async function Home() {
                 </div>
                 <div className="font-medium text-xs text-zinc-200">Redpanda</div>
                 <div className="text-[10px] font-mono text-zinc-400 mt-1 flex items-center justify-between">
-                  <span>Kafka Event Bus</span>
-                  <span className="text-emerald-400">0 lag</span>
+                  <span>Event Bus</span>
+                  <span className="text-emerald-400">:9092</span>
                 </div>
               </a>
 
@@ -708,8 +669,8 @@ export default async function Home() {
                 </div>
                 <div className="font-medium text-xs text-zinc-200">Grafana</div>
                 <div className="text-[10px] font-mono text-zinc-400 mt-1 flex items-center justify-between">
-                  <span>PromQL Dashboards</span>
-                  <span className="text-emerald-400">Healthy</span>
+                  <span>Dashboards</span>
+                  <span className="text-emerald-400">:3000</span>
                 </div>
               </a>
             </div>
@@ -717,53 +678,53 @@ export default async function Home() {
             {/* Quick Health Meta Stats */}
             <div className="mt-4 pt-3 border-t border-zinc-800/80 space-y-2 text-xs">
               <div className="flex justify-between items-center text-zinc-400">
-                <span className="text-[11px]">Ingestion Backpressure</span>
-                <span className="font-mono text-zinc-200 text-[11px]">0.02% (Nominal)</span>
+                <span className="text-[11px]">Database Connection</span>
+                <span className="font-mono text-zinc-200 text-[11px]">
+                  {dbConnected ? 'Nominal (Postgres 14)' : 'Unreachable'}
+                </span>
               </div>
               <div className="w-full bg-zinc-800/60 h-1 rounded-full overflow-hidden">
-                <div className="bg-emerald-400 h-full w-[2%] rounded-full"></div>
+                <div className={`h-full rounded-full ${dbConnected ? 'bg-emerald-400 w-[100%]' : 'bg-rose-500 w-[20%]'}`}></div>
               </div>
               <div className="flex justify-between items-center text-zinc-400 pt-1">
-                <span className="text-[11px]">Storage Allocated</span>
-                <span className="font-mono text-zinc-200 text-[11px]">412.4 GB / 2 TB</span>
+                <span className="text-[11px]">Table Storage Allocated</span>
+                <span className="font-mono text-zinc-200 text-[11px]">{tableSize}</span>
               </div>
               <div className="w-full bg-zinc-800/60 h-1 rounded-full overflow-hidden">
-                <div className="bg-indigo-400 h-full w-[20%] rounded-full"></div>
+                <div className="bg-indigo-400 h-full w-[8%] rounded-full"></div>
               </div>
             </div>
           </div>
 
-          {/* Secondary Card: Model Provider Quotas & Status */}
+          {/* Secondary Card: Real Model Provider Gateways */}
           <div className="bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/80 rounded-xl p-5 shadow-md">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-                Provider Gateways
+                Active Provider Telemetry
               </h3>
-              <span className="text-[10px] font-mono text-zinc-500">Tier 5 Org</span>
+              <span className="text-[10px] font-mono text-zinc-500">Live Channels</span>
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                  <span className="text-zinc-200 font-medium">OpenAI API</span>
+              {providers.length === 0 ? (
+                <div className="text-xs text-zinc-500 py-2">
+                  No providers recorded yet. Instrument calls to see active gateways.
                 </div>
-                <span className="font-mono text-[11px] text-zinc-400">92k TPM avail</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                  <span className="text-zinc-200 font-medium">Anthropic API</span>
-                </div>
-                <span className="font-mono text-[11px] text-zinc-400">400k TPM avail</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                  <span className="text-zinc-200 font-medium">AWS Bedrock (Llama 3)</span>
-                </div>
-                <span className="font-mono text-[11px] text-zinc-400">Unlimited VCPU</span>
-              </div>
+              ) : (
+                providers.map((p) => (
+                  <div key={p.provider} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                      <span className="text-zinc-200 font-medium capitalize">
+                        {p.provider} Gateway
+                      </span>
+                    </div>
+                    <span className="font-mono text-[11px] text-zinc-400">
+                      {`${p.count} events`}
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </section>

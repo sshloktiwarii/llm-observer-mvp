@@ -25,3 +25,11 @@ yarn-error.log*
 
 # Environment files
 .env*.local
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/

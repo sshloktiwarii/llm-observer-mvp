@@ -22,20 +22,51 @@ Usage:
 """
 
 import json
-import requests
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import logging
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    import urllib.request
+    import urllib.error
+    HAS_REQUESTS = False
 
 logger = logging.getLogger(__name__)
 
 
 class LLMObserver:
     def __init__(self, collection_service_url: str = "http://localhost:8080"):
-        self.collection_url = collection_service_url
-        self.session = requests.Session()
+        self.collection_url = collection_service_url.rstrip("/")
+        self.session = requests.Session() if HAS_REQUESTS else None
     
+    def _post(self, path: str, data: Any, timeout: int = 5) -> bool:
+        url = f"{self.collection_url}{path}"
+        payload = json.dumps(data).encode("utf-8")
+        
+        if HAS_REQUESTS and self.session:
+            try:
+                response = self.session.post(url, json=data, timeout=timeout)
+                return response.status_code == 200
+            except Exception as e:
+                logger.warning(f"Collector HTTP request failed: {e}")
+                return False
+        else:
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=payload,
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return resp.status == 200
+            except Exception as e:
+                logger.warning(f"Collector HTTP request failed: {e}")
+                return False
+
     def track_llm_call(
         self,
         trace_id: str,
@@ -52,6 +83,7 @@ class LLMObserver:
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
         parent_span_id: Optional[str] = None,
+        span_id: Optional[str] = None,
     ) -> bool:
         """
         Track a single LLM API call
@@ -71,6 +103,7 @@ class LLMObserver:
             error_code: Error code if status != success
             error_message: Error message if status != success
             parent_span_id: Parent span ID for multi-step flows
+            span_id: Unique span identifier (auto-generated if None)
         
         Returns:
             True if successfully sent to collection service
@@ -78,7 +111,7 @@ class LLMObserver:
         
         event = {
             "trace_id": trace_id,
-            "span_id": str(uuid.uuid4()),
+            "span_id": span_id or str(uuid.uuid4()),
             "parent_span_id": parent_span_id,
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "agent_id": agent_id,
@@ -91,44 +124,17 @@ class LLMObserver:
             "status": status,
             "error_code": error_code,
             "error_message": error_message,
-            "request_text": request_text[:500] if request_text else None,  # Truncate
-            "response_text": response_text[:500] if response_text else None,  # Truncate
+            "request_text": request_text[:1000] if request_text else None,
+            "response_text": response_text[:2000] if response_text else None,
             "probable_loop": False,
             "prompt_injection_score": 0.0,
         }
         
-        try:
-            response = self.session.post(
-                f"{self.collection_url}/api/v1/event",
-                json=event,
-                timeout=2  # Non-blocking
-            )
-            
-            if response.status_code == 200:
-                return True
-            else:
-                logger.warning(f"Collection service returned {response.status_code}")
-                return False
-                
-        except requests.exceptions.Timeout:
-            logger.warning("Collection service timeout (non-blocking)")
-            return False
-        except Exception as e:
-            logger.error(f"Failed to track LLM call: {e}")
-            return False
+        return self._post("/api/v1/event", event, timeout=3)
     
-    def track_batch(self, events: list) -> bool:
+    def track_batch(self, events: List[Dict[str, Any]]) -> bool:
         """Send multiple events in a batch"""
-        try:
-            response = self.session.post(
-                f"{self.collection_url}/api/v1/batch",
-                json=events,
-                timeout=5
-            )
-            return response.status_code == 200
-        except Exception as e:
-            logger.error(f"Failed to track batch: {e}")
-            return False
+        return self._post("/api/v1/batch", events, timeout=5)
 
 
 # Decorator for easy OpenAI integration
