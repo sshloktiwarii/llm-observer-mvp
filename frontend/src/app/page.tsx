@@ -1,5 +1,6 @@
 import { Pool } from 'pg';
 import Link from 'next/link';
+import { revalidatePath } from 'next/cache';
 import {
   Zap,
   CreditCard,
@@ -21,6 +22,7 @@ import {
   BarChart3,
   Server,
   ArrowRight,
+  Plus,
 } from 'lucide-react';
 import { LiveRefreshButton } from '@/components/DashboardClientControls';
 
@@ -223,7 +225,18 @@ function renderTraceIcon(model: string, status: string, agentId: string) {
   return <Bot className="w-4 h-4" />;
 }
 
-export default async function Home() {
+export default async function Dashboard() {
+  async function purgeDatabase() {
+    'use server';
+    try {
+      await pool.query('TRUNCATE TABLE llm_events;');
+    } catch (error) {
+      console.error('Failed to execute TRUNCATE TABLE llm_events:', error);
+    }
+    revalidatePath('/');
+    revalidatePath('/traces');
+  }
+
   const { metrics, recentEvents, providers, tableSize, dbConnected } = await getDashboardData();
 
   // Real Token Economics Calculations
@@ -260,8 +273,8 @@ export default async function Home() {
           </p>
         </div>
 
-        {/* Time Range Selector & Live Button */}
-        <div className="flex items-center gap-2">
+        {/* Time Range Selector, Live Button, New Trace, and Purge Data */}
+        <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-md bg-zinc-900/80 p-0.5 border border-zinc-800 text-xs">
             <button className="px-2.5 py-1 rounded bg-zinc-800 text-zinc-100 font-medium shadow-sm cursor-pointer">
               All Time
@@ -278,6 +291,42 @@ export default async function Home() {
           </div>
 
           <LiveRefreshButton />
+
+          <Link
+            href="/traces"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-md text-xs font-medium shadow-sm transition-all duration-200 hover:shadow-indigo-500/25 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Trace</span>
+          </Link>
+
+          <form action={purgeDatabase} className="inline-block">
+            <button
+              type="submit"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all duration-200 cursor-pointer shadow-sm"
+              title="Wipe all recorded traces from the database"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-3.5 h-3.5"
+              >
+                <path d="M3 6h18" strokeLinecap="round" />
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" strokeLinecap="round" strokeLinejoin="round" />
+                <line x1="10" y1="11" x2="10" y2="17" strokeLinecap="round" />
+                <line x1="14" y1="11" x2="14" y2="17" strokeLinecap="round" />
+              </svg>
+              <span>Purge Data</span>
+            </button>
+          </form>
         </div>
       </div>
 
