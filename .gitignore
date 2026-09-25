@@ -37,3 +37,13 @@ __pycache__/
 .venv/
 venv/
 ENV/
+
+# Local reference docs (untracked in public repository)
+DEPLOYMENT.md
+ERRORS.md
+INTEGRATION.md
+PROJECT_SUMMARY.md
+QUICKSTART.md
+architecture.md
+decision.md
+design.md
