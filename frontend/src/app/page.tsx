@@ -26,6 +26,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { LiveRefreshButton } from '@/components/DashboardClientControls';
+import { OnboardingTour } from '@/components/OnboardingTour';
 
 export const dynamic = 'force-dynamic';
 
@@ -331,6 +332,8 @@ export default async function Dashboard() {
 
           <LiveRefreshButton />
 
+          <OnboardingTour />
+
           <Link
             href="/traces"
             className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-400 text-white rounded-md text-xs font-medium shadow-sm transition-all duration-200 hover:shadow-indigo-500/25 cursor-pointer"
@@ -339,7 +342,7 @@ export default async function Dashboard() {
             <span>New Trace</span>
           </Link>
 
-          <form action={purgeDatabase} className="inline-block">
+          <form id="tour-purge" action={purgeDatabase} className="inline-block">
             <button
               type="submit"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition-all duration-200 cursor-pointer shadow-sm"
@@ -370,7 +373,7 @@ export default async function Dashboard() {
       </div>
 
       {/* Top Level Metrics Grid (3 columns) (Stagger 2, 3, 4) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div id="tour-metrics" className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Metric 1: Total Requests */}
         <div className="motion-enter stagger-2 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/80 hover:border-zinc-700 rounded-xl p-6 transition-all duration-300 ease-out hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/40 group">
           <div className="flex items-center justify-between text-zinc-400 mb-3">
@@ -471,7 +474,7 @@ export default async function Dashboard() {
       {/* Main Content Split (2/3 and 1/3) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Recent Activity (8 Cols / ~2/3) (Stagger 5) */}
-        <section className="lg:col-span-8 motion-enter stagger-5 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/80 rounded-xl overflow-hidden shadow-md">
+        <section id="tour-traces" className="lg:col-span-8 motion-enter stagger-5 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/80 rounded-xl overflow-hidden shadow-md">
           {/* Header & Quick Filters */}
           <div className="p-5 border-b border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -639,7 +642,7 @@ export default async function Dashboard() {
         {/* Right Column: System Health 2x2 Grid (4 Cols / ~1/3) (Stagger 6) */}
         <section className="lg:col-span-4 motion-enter stagger-6 space-y-6">
           {/* System Health Box */}
-          <div className="bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/80 rounded-xl p-5 shadow-md">
+          <div id="tour-health" className="bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/80 rounded-xl p-5 shadow-md">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold tracking-tight text-zinc-100 flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-emerald-400" />

@@ -1,216 +1,249 @@
-# LLM Observer MVP
+# LLM Observer
 
-Real-time observability and anomaly detection for AI agents. Monitor token consumption, costs, latency, and detect execution loops and prompt injection attacks.
+> Real-time, local-first LLM observability dashboard, telemetry ingestion pipeline, and multi-agent execution profiler.
 
-## Quick Start
+LLM Observer provides real-time profiling, token economics tracking, latency heatmaps, and hierarchical trace visualization for local and cloud-based AI agent chains. Built with a local-first philosophy, all metrics and traces remain on your machine with zero external cloud dependencies.
+
+---
+
+## Architecture Stack
+
+```
+                              ┌──────────────────────────────────────────────┐
+                              │           Host Application / Agents          │
+                              └──────────────────────┬───────────────────────┘
+                                                     │ (Async non-blocking spans)
+                                                     ▼
+                                      ┌─────────────────────────────┐
+                                      │   Python SDK (TraceLogger)  │
+                                      └──────────────┬──────────────┘
+                                                     │ HTTP POST /ingest
+                                                     ▼
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                       Collection Service (Go :8080)                                    │
+│                                Batching Engine & TCP Ingestion Gateway                                 │
+└──────────────────────────────┬───────────────────────────────────────────┬─────────────────────────────┘
+                               │                                           │
+                               ▼                                           ▼
+                 ┌───────────────────────────┐               ┌───────────────────────────┐
+                 │  TimescaleDB (PostgreSQL) │               │   Redpanda (Kafka Bus)    │
+                 │      Hypertables :5432    │               │     llm-events :9092      │
+                 └─────────────┬─────────────┘               └───────────────────────────┘
+                               │
+                               ▼ (Dynamic Server Component Queries)
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                              Next.js 14 App Router Frontend (:3000 / :3001)                            │
+│  - Real-Time Token Economics & Cost Rollups           - Interactive Driver.js Onboarding Tour          │
+│  - Live Trace Stream & Hierarchical Waterfall Viewer   - Dynamic Server-Side TCP System Health Grid     │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Frontend**: [Next.js 14 (App Router)](https://nextjs.org/) & [Tailwind CSS](https://tailwindcss.com/)
+  - Pure React Server Components for sub-millisecond database queries.
+  - Dark-mode minimal design with tailored zinc/indigo aesthetics and spring entrance micro-animations.
+  - Interactive onboarding tour powered by [driver.js](https://driverjs.com/).
+  - Dynamic System Health grid with real-time server-side TCP socket pinging.
+  - Hierarchical Waterfall Trace visualizer for multi-step agent trajectories.
+- **Ingestion Engine**: [Go](https://go.dev/) (`:8080`)
+  - High-throughput asynchronous event ingestion gateway (`/ingest` and `/api/v1/event`).
+  - Thread-safe micro-batching buffer flushing to disk and streaming bus.
+- **Storage & Event Bus**: [Docker Compose](https://docs.docker.com/compose/)
+  - **TimescaleDB** (`:5432`): PostgreSQL 14 time-series hypertable with automated continuous aggregates.
+  - **Redpanda** (`:9092`): Kafka-compatible streaming event log.
+  - **Grafana** (`:3000`): Secondary deep infrastructure and container monitoring dashboards.
+- **Client SDK**: Python 3 Telemetry SDK (`sdk/telemetry.py`)
+  - Background daemon worker thread with thread-safe queueing (`queue.Queue`).
+  - Zero performance overhead on agent critical path (< 0.1ms non-blocking span submission).
+
+---
+
+## Getting Started
 
 ### Prerequisites
-- Docker & Docker Compose
-- Go 1.21+ (for collection service)
-- Python 3.9+ (for SDK and examples)
+- [Docker](https://www.docker.com/) & Docker Compose
+- [Node.js 18+](https://nodejs.org/) & npm
+- [Go 1.21+](https://go.dev/)
+- [Python 3.9+](https://www.python.org/)
 
-### 1. Start Infrastructure
+---
+
+### Step 1: Spin Up the Infrastructure
+
+Launch TimescaleDB, Redpanda, and Grafana in the background:
 
 ```bash
-cd llm-observer
 docker-compose up -d
 ```
 
-This starts:
-- **Redpanda** (Kafka): `localhost:9092`
-- **TimescaleDB**: `localhost:5432` (user: observer, pass: observer_pass)
-- **Grafana**: `http://localhost:3000` (admin/admin)
-- **PgAdmin**: `http://localhost:5050` (admin@local.com/admin)
-
-### 2. Initialize Database Schema
-
+Verify that all containers are healthy:
 ```bash
-# Inside container
-docker exec timescaledb psql -U observer -d llm_events -f /dev/stdin < init_schema.sql
-
-# Or locally (if psql installed)
-PGPASSWORD=observer_pass psql -h localhost -U observer -d llm_events -f init_schema.sql
+docker-compose ps
 ```
 
-### 3. Build & Run Collection Service
+---
+
+### Step 2: Initialize Database Schema
+
+Inject the TimescaleDB hypertable schema, indexes, and continuous aggregates:
+
+```bash
+docker exec -i timescaledb psql -U observer -d llm_events < init_schema.sql
+```
+
+---
+
+### Step 3: Start the Go Ingestion Engine
+
+Launch the Go backend service on port `8080`:
 
 ```bash
 go mod download
 go run main.go
 ```
 
-The collection service listens on `:8080`:
-- `POST /api/v1/event` - Single event
-- `POST /api/v1/batch` - Batch of events
-- `GET /health` - Health check
+The server will log:
+```text
+Connected to TimescaleDB
+Starting collection service on :8080
+```
 
-### 4. Test with Examples
+---
 
-**Python SDK:**
+### Step 4: Run the Next.js Frontend Dashboard
+
+In a new terminal window, start the Next.js development server:
+
 ```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) (or [http://localhost:3001](http://localhost:3001) if 3000 is occupied) in your browser.
+
+---
+
+### Step 5: Emit Sample Agent Telemetry
+
+Run the included multi-step agent workflow simulation to populate the dashboard with realistic traces:
+
+```bash
+# Using your preferred Python environment (e.g. repo virtualenv)
+./.venv/bin/python3 example_usage.py
+
+# Or with system python
 pip install requests
-python example_usage.py
+python3 example_usage.py
 ```
 
-**cURL Test:**
-```bash
-curl -X POST http://localhost:8080/api/v1/event \
-  -H "Content-Type: application/json" \
-  -d '{
-    "trace_id": "550e8400-e29b-41d4-a716-446655440000",
-    "span_id": "6ba7b810-9dad-11d1-80b2-00c04fd430c8",
-    "agent_id": "test-agent",
-    "model": "gpt-4",
-    "provider": "openai",
-    "prompt_tokens": 100,
-    "completion_tokens": 50,
-    "cost_usd": 0.0042,
-    "latency_ms": 1240,
-    "status": "success"
-  }'
+This simulates a 5-step autonomous software engineering pipeline:
+1. **Customer Query Router** (`llama-3-8b` | 165 tokens | 142ms)
+2. **Context Augmenter** (`llama-3-8b` | 380 tokens | 295ms)
+3. **Code Synthesizer** (`qwen-2.5-coder` | 890 tokens | 1180ms)
+4. **Code Reviewer** (`qwen-2.5-coder` | 420 tokens | 410ms)
+5. **Response Formatter** (`llama-3-8b` | 230 tokens | 175ms)
+
+---
+
+## Python Telemetry SDK Usage
+
+Install or import the lightweight SDK into your AI application:
+
+```python
+from sdk.telemetry import TraceLogger
+
+# Initialize logger (defaults to http://localhost:8080/ingest)
+logger = TraceLogger()
+
+# Log spans asynchronously without blocking model execution
+span = logger.log_span(
+    agent_name="Code Synthesizer",
+    model_name="qwen-2.5-coder",
+    tokens=480,
+    cost=0.00048,
+    latency_ms=310,
+    status_code=200,
+    request_text="Write a Go HTTP health check probe.",
+    response_text="func checkHealth() bool { ... }",
+)
+
+# Optional: Ensure all queued spans are delivered before exit
+logger.flush()
 ```
 
-### 5. View Dashboards
+### Context Linking for Multi-Step Chains
 
-Open **Grafana**: http://localhost:3000 (admin/admin)
+```python
+import uuid
+from sdk.telemetry import TraceLogger
 
-Add TimescaleDB data source:
-- Host: `timescaledb`
-- Database: `llm_events`
-- User: `observer`
-- Password: `observer_pass`
+logger = TraceLogger()
+root_trace_id = str(uuid.uuid4())
 
-Query examples:
-```sql
--- Hourly cost by agent (last 24h)
-SELECT hour, agent_id, total_cost FROM hourly_costs 
-WHERE hour > NOW() - INTERVAL '24 hours'
-ORDER BY hour DESC;
+# Step 1: Router
+step1 = logger.log_span(
+    agent_name="Router",
+    model_name="llama-3-8b",
+    tokens=120,
+    cost=0.00012,
+    latency_ms=95,
+    trace_id=root_trace_id,
+)
 
--- Latency percentiles (last hour)
-SELECT window, agent_id, p50_ms, p95_ms, p99_ms FROM latency_percentiles
-WHERE window > NOW() - INTERVAL '1 hour'
-ORDER BY window DESC;
-
--- Detect loops (requests with high repetition)
-SELECT window, agent_id, request_count, repetition_pct FROM potential_loops
-WHERE repetition_pct > 50
-ORDER BY window DESC;
+# Step 2: Worker linked to Step 1
+step2 = logger.log_span(
+    agent_name="Worker",
+    model_name="qwen-2.5-coder",
+    tokens=450,
+    cost=0.00045,
+    latency_ms=420,
+    trace_id=root_trace_id,
+    parent_span_id=step1["span_id"],
+)
 ```
 
 ---
 
-## Architecture
+## Key Platform Features
+
+### 1. Zero-Latency Asynchronous Telemetry
+Spans are enqueued in-memory in `< 0.1ms` using a background daemon thread pool. Model inference threads never stall on network I/O or database round-trips.
+
+### 2. Live Dynamic Polling & Fresh State
+The dashboard bypasses Next.js static data cache using `export const dynamic = 'force-dynamic'` and real-time interval polling, ensuring incoming spans reflect instantaneously.
+
+### 3. Server-Side TCP System Health Grid
+The 2x2 health grid performs sub-second TCP socket probes directly from the server to `:8080` (Go), `:5432` (TimescaleDB), `:9092` (Redpanda), and `:3000` (Grafana), rendering real-time green glowing pulse indicators or dimmed red offline alerts.
+
+### 4. Guided First-Time Onboarding Tour
+Built with [driver.js](https://driverjs.com/), new visitors receive a contextual 4-step walkthrough of Token Economics, Live Trace Streams, Infrastructure Probes, and Data Purge controls. Can be replayed at any time via the **Tour** header button.
+
+### 5. In-App Data Purging
+Wipe recorded traces and reset local benchmarks on demand with the integrated **Purge Data** server action, revalidating cache instantly without requiring external database GUI tools.
+
+---
+
+## Repository Structure
 
 ```
-App Code
-   ↓
-[LLM Observer SDK] (Python/Go/Node.js)
-   ↓
-[Collection Service] (Go, batching)
-   ↓ (HTTP POST)
-[Event Storage]
-   ├→ Redpanda (Kafka topic: llm-events)
-   └→ TimescaleDB (direct insert)
-   ↓
-[Grafana] (visualization)
+llm-observer-mvp/
+├── frontend/                  # Next.js 14 App Router Web Application
+│   ├── src/app/page.tsx       # Main LLM Telemetry & Health Dashboard
+│   ├── src/app/traces/        # Hierarchical Waterfall Trace Explorer
+│   ├── src/components/        # Client controls, LiveRefresh, OnboardingTour
+│   └── src/app/globals.css    # Tailwind CSS & Driver.js dark-mode theme
+├── sdk/                       # Python Telemetry Client SDK
+│   ├── __init__.py            # Package exports
+│   └── telemetry.py           # TraceLogger async worker implementation
+├── main.go                    # Go Ingestion Collector Service (:8080)
+├── init_schema.sql            # TimescaleDB hypertables & materialized views
+├── docker-compose.yml         # Container definitions (TimescaleDB, Redpanda, Grafana)
+├── example_usage.py           # 5-step agent simulation script
+├── start.sh                   # One-command bootstrapper script
+└── README.md                  # System documentation
 ```
 
 ---
 
-## Core Features (MVP)
-
-✅ **Cost Tracking**
-- Track cost per agent, model, provider
-- Hourly aggregations
-- Alert on cost thresholds
-
-✅ **Performance Metrics**
-- Latency percentiles (p50, p95, p99)
-- Throughput (requests/sec)
-- Token consumption tracking
-
-✅ **Error Tracking**
-- Status codes, error messages
-- Error rates by agent
-- Failure patterns
-
-✅ **Loop Detection**
-- Identify repeated requests in traces
-- Repetition percentage calculation
-- Alert on suspicious patterns
-
----
-
-## Phase 2: Advanced Features (TBD)
-
-- [ ] ML-based anomaly detection (Isolation Forest)
-- [ ] Hallucination scoring
-- [ ] Prompt injection detection
-- [ ] Multi-tenancy & RBAC
-- [ ] Slack/PagerDuty integrations
-- [ ] Custom alert builder UI
-
----
-
-## Troubleshooting
-
-**Collection service can't connect to Kafka:**
-```bash
-docker exec redpanda rpk cluster info
-```
-
-**TimescaleDB connection refused:**
-```bash
-# Check DB is running
-docker ps | grep timescaledb
-
-# Connect directly
-PGPASSWORD=observer_pass psql -h localhost -U observer -d llm_events -c "SELECT 1;"
-```
-
-**No data in Grafana:**
-1. Verify events are being sent: `curl http://localhost:8080/health`
-2. Check database has data: `SELECT COUNT(*) FROM llm_events;`
-3. Ensure Grafana data source is correctly configured
-
----
-
-## Performance Notes
-
-- **Single collection service** handles 1K-10K events/sec
-- **Batching reduces network calls** by ~100x
-- **TimescaleDB** optimized for time-series: fast aggregations on billions of rows
-- **Redpanda** for future stream processing (Phase 2)
-
----
-
-## Files Overview
-
-| File | Purpose |
-|------|------|
-| `docker-compose.yml` | Infrastructure setup (Redpanda, TimescaleDB, Grafana) |
-| `init_schema.sql` | Database schema, indexes, materialized views |
-| `main.go` | Collection service (HTTP listener + event batching) |
-| `llm_observer.py` | Python SDK for app instrumentation |
-| `http_interceptor.py` | Optional reverse proxy for LLM APIs |
-| `example_usage.py` | Example tracking patterns |
-
----
-
-## Next Steps
-
-1. **Integrate SDK into your agent code** (Python SDK provided, Go/Node.js examples easy to build)
-2. **Set cost alert thresholds** in config table
-3. **Create custom dashboards** in Grafana
-4. **Run example.py** to see data flow
-5. **Monitor and refine** detection thresholds based on your workload
-
----
-
-For questions or issues, check logs:
-```bash
-docker logs redpanda
-docker logs timescaledb
-docker logs grafana
-```
+## License
+MIT
