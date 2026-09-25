@@ -256,17 +256,8 @@ export default async function Dashboard() {
       {/* Top Bar: Title & Filter Controls (Stagger 1) */}
       <div className="motion-enter stagger-1 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-6">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-zinc-50 flex items-center gap-2.5">
+          <h1 className="text-xl font-semibold tracking-tight text-zinc-50">
             LLM Telemetry &amp; Performance
-            <span
-              className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${
-                dbConnected
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                  : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-              }`}
-            >
-              {dbConnected ? 'All Systems Normal' : 'Database Offline'}
-            </span>
           </h1>
           <p className="text-xs text-zinc-400 mt-1">
             Real-time trace profiling, token economics, latency heatmaps, and worker orchestrations.
