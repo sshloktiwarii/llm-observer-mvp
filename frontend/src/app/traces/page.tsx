@@ -142,6 +142,19 @@ const fallbackSupplementalTraces: TraceRecord[] = [
   },
 ];
 
+function formatTimestampString(dateInput: Date | string | null | undefined): string {
+  if (!dateInput) return 'Recently';
+  if (typeof dateInput === 'string' && dateInput.includes('ago')) {
+    return dateInput;
+  }
+  const date = new Date(dateInput);
+  if (isNaN(date.getTime())) return 'Recently';
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds} UTC`;
+}
+
 async function fetchTracesData(): Promise<{ traces: TraceRecord[]; dbConnected: boolean }> {
   try {
     const result = await pool.query<RawTraceRow>(`
@@ -173,7 +186,7 @@ async function fetchTracesData(): Promise<{ traces: TraceRecord[]; dbConnected: 
       completion_tokens: Number(row.completion_tokens) || 0,
       latency_ms: Number(row.latency_ms) || 0,
       status_code: row.status_code === 'success' ? '200 OK' : row.status_code || '200 OK',
-      timestamp: row.timestamp,
+      timestamp: formatTimestampString(row.timestamp),
       cost_usd: Number(row.cost_usd) || 0,
       request_text: row.request_text,
       response_text: row.response_text,

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useMemo, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import Link from 'next/link';
 
 // Hand-crafted Artisanal Wabi-Sabi SVGs (stroke-linecap="round", stroke-width="1.5")
@@ -143,7 +143,7 @@ export interface TraceRecord {
   completion_tokens?: number;
   latency_ms: number;
   status_code: string;
-  timestamp: string | Date;
+  timestamp: string;
   cost_usd: number;
   request_text?: string | null;
   response_text?: string | null;
@@ -168,13 +168,15 @@ function generateWaterfallSpans(trace: TraceRecord): WaterfallSpan[] {
   const isErr = trace.status_code !== 'success' && trace.status_code !== '200' && !trace.status_code.includes('OK');
 
   if (isErr) {
+    const p1 = Math.round(total * 0.18);
+    const p2 = Math.max(total - p1, 20);
     return [
       {
         id: 'span-retrieval',
         name: 'Context Pipeline Initialization',
         category: 'Retrieval',
         start_ms: 0,
-        duration_ms: Math.round(total * 0.18),
+        duration_ms: p1,
         colorClass: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
         barColor: 'from-indigo-600 to-indigo-400',
         details: 'Route incoming request parameters & auth validation',
@@ -184,8 +186,8 @@ function generateWaterfallSpans(trace: TraceRecord): WaterfallSpan[] {
         id: 'span-error-eval',
         name: 'Gateway Exception / 429 Rate Limit',
         category: 'Error',
-        start_ms: Math.round(total * 0.18),
-        duration_ms: Math.round(total * 0.82),
+        start_ms: p1,
+        duration_ms: p2,
         colorClass: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
         barColor: 'from-rose-600 to-rose-400',
         details: 'Provider quota exhausted: TPM rate-limit reached at gateway',
@@ -269,6 +271,21 @@ function renderSpanIcon(icon: WaterfallSpan['icon']) {
   }
 }
 
+function formatDisplayTime(timestamp: string): string {
+  if (!timestamp) return 'Recently';
+  if (timestamp.includes('ago') || timestamp.includes('UTC')) {
+    return timestamp;
+  }
+  const d = new Date(timestamp);
+  if (!isNaN(d.getTime())) {
+    const h = String(d.getUTCHours()).padStart(2, '0');
+    const m = String(d.getUTCMinutes()).padStart(2, '0');
+    const s = String(d.getUTCSeconds()).padStart(2, '0');
+    return `${h}:${m}:${s} UTC`;
+  }
+  return timestamp;
+}
+
 export function TraceWaterfallClient({
   traces,
   dbConnected,
@@ -281,6 +298,11 @@ export function TraceWaterfallClient({
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'error'>('all');
   const [copiedId, setCopiedId] = useState(false);
   const [metadataTab, setMetadataTab] = useState<'snippets' | 'raw'>('snippets');
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   // Filtered master traces list
   const filteredTraces = useMemo(() => {
@@ -326,7 +348,7 @@ export function TraceWaterfallClient({
     <div className="space-y-6">
       {/* Top Breadcrumb & Section Bar */}
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={hasMounted ? { opacity: 0, y: 10 } : false}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
         className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-5"
@@ -348,7 +370,7 @@ export function TraceWaterfallClient({
               Traces &amp; Spans Explorer
             </h1>
             <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-zinc-800 text-zinc-400 border border-zinc-700/50">
-              {traces.length} Telemetry Events
+              {`${traces.length} Telemetry Events`}
             </span>
           </div>
         </div>
@@ -371,7 +393,7 @@ export function TraceWaterfallClient({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Trace List (4 cols) */}
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
+          initial={hasMounted ? { opacity: 0, y: 10 } : false}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45 }}
           className="lg:col-span-4 bg-zinc-900/50 backdrop-blur-sm border border-zinc-800/80 rounded-xl overflow-hidden shadow-lg flex flex-col h-[calc(100vh-14rem)]"
@@ -383,7 +405,7 @@ export function TraceWaterfallClient({
                 Trace Stream
               </span>
               <span className="text-[11px] font-mono text-zinc-500">
-                Showing {filteredTraces.length} of {traces.length}
+                {`Showing ${filteredTraces.length} of ${traces.length}`}
               </span>
             </div>
 
@@ -443,7 +465,7 @@ export function TraceWaterfallClient({
           <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/60 custom-scrollbar">
             {filteredTraces.length === 0 ? (
               <div className="p-8 text-center text-zinc-500 text-xs">
-                No matching traces found for &quot;{searchQuery}&quot;
+                {`No matching traces found for "${searchQuery}"`}
               </div>
             ) : (
               filteredTraces.map((trace, index) => {
@@ -453,19 +475,12 @@ export function TraceWaterfallClient({
                   trace.status_code !== '200' &&
                   !trace.status_code.includes('OK');
 
-                const timeFormatted =
-                  typeof trace.timestamp === 'string'
-                    ? trace.timestamp
-                    : new Date(trace.timestamp).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit',
-                      });
+                const timeFormatted = formatDisplayTime(trace.timestamp);
 
                 return (
                   <motion.div
                     key={trace.id}
-                    initial={{ opacity: 0, y: 10 }}
+                    initial={hasMounted ? { opacity: 0, y: 10 } : false}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.25, delay: Math.min(index * 0.04, 0.4) }}
                     onClick={() => setSelectedId(trace.id)}
@@ -510,16 +525,18 @@ export function TraceWaterfallClient({
                       <span className="text-zinc-500 truncate max-w-[140px]">
                         {trace.id.startsWith('trace_') ? trace.id : `trace_${trace.id.slice(0, 8)}...`}
                       </span>
-                      <span>{timeFormatted}</span>
+                      <span suppressHydrationWarning>{timeFormatted}</span>
                     </div>
 
                     <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-zinc-800/40 text-[11px] font-mono tabular-nums">
-                      <span className="text-zinc-400">
-                        {trace.tokens.toLocaleString()}{' '}
-                        <span className="text-[10px] text-zinc-500">tok</span>
+                      <span className="text-zinc-400" suppressHydrationWarning>
+                        {`${trace.tokens.toLocaleString()} tok`}
                       </span>
-                      <span className={isErr ? 'text-rose-400' : 'text-emerald-400'}>
-                        {trace.latency_ms.toLocaleString()}ms
+                      <span
+                        suppressHydrationWarning
+                        className={isErr ? 'text-rose-400' : 'text-emerald-400'}
+                      >
+                        {`${trace.latency_ms.toLocaleString()}ms`}
                       </span>
                     </div>
                   </motion.div>
@@ -531,7 +548,7 @@ export function TraceWaterfallClient({
 
         {/* Right Column: Trace Waterfall & Details (8 cols) */}
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
+          initial={hasMounted ? { opacity: 0, y: 10 } : false}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.1 }}
           className="lg:col-span-8 space-y-6"
@@ -546,7 +563,10 @@ export function TraceWaterfallClient({
                       <span className="text-xs uppercase font-semibold tracking-wider text-zinc-400">
                         Trace ID
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[11px] font-mono text-zinc-200 bg-zinc-950 border border-zinc-800 select-all">
+                      <span
+                        suppressHydrationWarning
+                        className="px-2 py-0.5 rounded text-[11px] font-mono text-zinc-200 bg-zinc-950 border border-zinc-800 select-all"
+                      >
                         {activeTrace.id}
                       </span>
                       <button
@@ -568,7 +588,7 @@ export function TraceWaterfallClient({
                       <span className="font-mono text-indigo-400">{activeTrace.model_name}</span>
                       <span>•</span>
                       <span className="font-mono text-zinc-500">
-                        Span: {activeTrace.span_id || 'root_span'}
+                        {`Span: ${activeTrace.span_id || 'root_span'}`}
                       </span>
                     </div>
                   </div>
@@ -599,9 +619,8 @@ export function TraceWaterfallClient({
                       <SvgClock className="w-3 h-3 text-indigo-400" />
                       Total Latency
                     </div>
-                    <div className="text-lg font-semibold text-zinc-50 font-mono tabular-nums mt-1">
-                      {activeTrace.latency_ms.toLocaleString()}
-                      <span className="text-xs text-zinc-400 font-normal">ms</span>
+                    <div className="text-lg font-semibold text-zinc-50 font-mono tabular-nums mt-1" suppressHydrationWarning>
+                      {`${activeTrace.latency_ms.toLocaleString()}ms`}
                     </div>
                   </div>
 
@@ -610,9 +629,8 @@ export function TraceWaterfallClient({
                       <SvgLayers className="w-3 h-3 text-cyan-400" />
                       Total Tokens
                     </div>
-                    <div className="text-lg font-semibold text-zinc-50 font-mono tabular-nums mt-1">
-                      {activeTrace.tokens.toLocaleString()}
-                      <span className="text-xs text-zinc-400 font-normal"> tok</span>
+                    <div className="text-lg font-semibold text-zinc-50 font-mono tabular-nums mt-1" suppressHydrationWarning>
+                      {`${activeTrace.tokens.toLocaleString()} tok`}
                     </div>
                   </div>
 
@@ -621,8 +639,8 @@ export function TraceWaterfallClient({
                       <SvgCoins className="w-3 h-3 text-emerald-400" />
                       Estimated Cost
                     </div>
-                    <div className="text-lg font-semibold text-zinc-50 font-mono tabular-nums mt-1">
-                      ${Number(activeTrace.cost_usd).toFixed(4)}
+                    <div className="text-lg font-semibold text-zinc-50 font-mono tabular-nums mt-1" suppressHydrationWarning>
+                      {`$${Number(activeTrace.cost_usd).toFixed(4)}`}
                     </div>
                   </div>
 
@@ -631,9 +649,8 @@ export function TraceWaterfallClient({
                       <SvgActivity className="w-3 h-3 text-purple-400" />
                       Span Pipeline
                     </div>
-                    <div className="text-lg font-semibold text-zinc-50 font-mono tabular-nums mt-1">
-                      {spans.length}
-                      <span className="text-xs text-zinc-400 font-normal"> spans</span>
+                    <div className="text-lg font-semibold text-zinc-50 font-mono tabular-nums mt-1" suppressHydrationWarning>
+                      {`${spans.length} spans`}
                     </div>
                   </div>
                 </div>
@@ -650,8 +667,8 @@ export function TraceWaterfallClient({
                       Execution Waterfall Timeline
                     </h2>
                   </div>
-                  <span className="text-[11px] font-mono text-zinc-400">
-                    Duration: {activeTrace.latency_ms}ms total
+                  <span className="text-[11px] font-mono text-zinc-400" suppressHydrationWarning>
+                    {`Duration: ${activeTrace.latency_ms}ms total`}
                   </span>
                 </div>
 
@@ -659,22 +676,26 @@ export function TraceWaterfallClient({
                 <div className="border border-zinc-800/80 bg-zinc-950/80 rounded-lg p-3 pt-2">
                   <div className="relative h-6 text-[10px] font-mono text-zinc-400 border-b border-zinc-800/80 mb-3 flex items-center justify-between px-1">
                     <span>0ms</span>
-                    <span className="hidden sm:inline">
-                      {Math.round(activeTrace.latency_ms * 0.25)}ms
+                    <span className="hidden sm:inline" suppressHydrationWarning>
+                      {`${Math.round(activeTrace.latency_ms * 0.25)}ms`}
                     </span>
-                    <span>{Math.round(activeTrace.latency_ms * 0.5)}ms</span>
-                    <span className="hidden sm:inline">
-                      {Math.round(activeTrace.latency_ms * 0.75)}ms
+                    <span suppressHydrationWarning>
+                      {`${Math.round(activeTrace.latency_ms * 0.5)}ms`}
                     </span>
-                    <span>{activeTrace.latency_ms}ms</span>
+                    <span className="hidden sm:inline" suppressHydrationWarning>
+                      {`${Math.round(activeTrace.latency_ms * 0.75)}ms`}
+                    </span>
+                    <span suppressHydrationWarning>
+                      {`${activeTrace.latency_ms}ms`}
+                    </span>
                   </div>
 
                   {/* Waterfall Span Rows */}
                   <div className="space-y-3">
                     {spans.map((span) => {
                       const totalMs = Math.max(activeTrace.latency_ms, 1);
-                      const leftPercent = Math.min((span.start_ms / totalMs) * 100, 95);
-                      const widthPercent = Math.max(Math.min((span.duration_ms / totalMs) * 100, 100 - leftPercent), 4);
+                      const leftPercent = Math.min((span.start_ms / totalMs) * 100, 95).toFixed(2);
+                      const widthPercent = Math.max(Math.min((span.duration_ms / totalMs) * 100, 100 - Number(leftPercent)), 4).toFixed(2);
 
                       return (
                         <div
@@ -710,7 +731,7 @@ export function TraceWaterfallClient({
 
                             {/* Floating Span Bar with Framer Motion entrance */}
                             <motion.div
-                              initial={{ scaleX: 0, opacity: 0 }}
+                              initial={hasMounted ? { scaleX: 0, opacity: 0 } : false}
                               animate={{ scaleX: 1, opacity: 1 }}
                               transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
                               style={{
@@ -721,15 +742,21 @@ export function TraceWaterfallClient({
                               className={`absolute h-5 rounded bg-gradient-to-r ${span.barColor} shadow-sm shadow-black/40 flex items-center px-2 cursor-pointer group/bar`}
                               title={`${span.name}: ${span.duration_ms}ms (start at ${span.start_ms}ms)`}
                             >
-                              <span className="text-[10px] font-mono font-medium text-white truncate drop-shadow-sm select-none">
-                                {span.duration_ms}ms
+                              <span
+                                suppressHydrationWarning
+                                className="text-[10px] font-mono font-medium text-white truncate drop-shadow-sm select-none"
+                              >
+                                {`${span.duration_ms}ms`}
                               </span>
                             </motion.div>
                           </div>
 
                           {/* Offset & Duration meta on right */}
-                          <div className="sm:w-24 shrink-0 text-right font-mono text-[11px] tabular-nums text-zinc-400">
-                            +{span.start_ms}ms
+                          <div
+                            suppressHydrationWarning
+                            className="sm:w-24 shrink-0 text-right font-mono text-[11px] tabular-nums text-zinc-400"
+                          >
+                            {`+${span.start_ms}ms`}
                           </div>
                         </div>
                       );
@@ -786,8 +813,8 @@ export function TraceWaterfallClient({
                           <span className="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
                           Input Prompt Snippet
                         </span>
-                        <span className="text-[11px] font-mono text-zinc-500">
-                          {activeTrace.prompt_tokens || Math.round(activeTrace.tokens * 0.65)} prompt tokens
+                        <span className="text-[11px] font-mono text-zinc-500" suppressHydrationWarning>
+                          {`${activeTrace.prompt_tokens || Math.round(activeTrace.tokens * 0.65)} prompt tokens`}
                         </span>
                       </div>
                       <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3.5 font-mono text-xs text-zinc-300 leading-relaxed overflow-x-auto whitespace-pre-wrap select-text">
@@ -801,10 +828,10 @@ export function TraceWaterfallClient({
                       <div className="flex items-center justify-between text-xs font-medium text-zinc-400">
                         <span className="flex items-center gap-1.5 text-zinc-300 font-mono text-[11px] uppercase tracking-wider">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                          Model Output Snippet ({activeTrace.model_name})
+                          {`Model Output Snippet (${activeTrace.model_name})`}
                         </span>
-                        <span className="text-[11px] font-mono text-zinc-500">
-                          {activeTrace.completion_tokens || Math.round(activeTrace.tokens * 0.35)} completion tokens
+                        <span className="text-[11px] font-mono text-zinc-500" suppressHydrationWarning>
+                          {`${activeTrace.completion_tokens || Math.round(activeTrace.tokens * 0.35)} completion tokens`}
                         </span>
                       </div>
                       <div className="bg-zinc-950/80 border border-zinc-800/80 rounded-lg p-3.5 font-mono text-xs text-zinc-300 leading-relaxed overflow-x-auto whitespace-pre-wrap select-text">
@@ -818,7 +845,10 @@ export function TraceWaterfallClient({
                 ) : (
                   /* Raw JSON Telemetry View */
                   <div className="relative">
-                    <pre className="bg-zinc-950/90 border border-zinc-800/80 rounded-lg p-4 font-mono text-xs text-indigo-300/90 overflow-x-auto leading-relaxed select-all">
+                    <pre
+                      suppressHydrationWarning
+                      className="bg-zinc-950/90 border border-zinc-800/80 rounded-lg p-4 font-mono text-xs text-indigo-300/90 overflow-x-auto leading-relaxed select-all"
+                    >
                       {JSON.stringify(
                         {
                           trace_id: activeTrace.id,

@@ -397,7 +397,7 @@ export default async function Home() {
             </div>
           </div>
           <div className="flex items-baseline gap-3">
-            <span className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums">
+            <span suppressHydrationWarning className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums">
               {totalRequestsValue}
             </span>
             <span className="inline-flex items-center text-xs font-medium text-emerald-400 gap-0.5 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
@@ -424,7 +424,7 @@ export default async function Home() {
             </div>
           </div>
           <div className="flex items-baseline gap-3">
-            <span className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums">
+            <span suppressHydrationWarning className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums">
               {estimatedCostValue}
             </span>
             <span className="inline-flex items-center text-xs font-medium text-emerald-400 gap-0.5 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
@@ -451,9 +451,8 @@ export default async function Home() {
             </div>
           </div>
           <div className="flex items-baseline gap-3">
-            <span className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums">
-              {avgLatencyValue}
-              <span className="text-lg font-normal text-zinc-400">ms</span>
+            <span suppressHydrationWarning className="text-3xl font-semibold tracking-tight text-zinc-50 tabular-nums">
+              {`${avgLatencyValue}ms`}
             </span>
             <span className="inline-flex items-center text-xs font-medium text-rose-400 gap-0.5 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
               <TrendingUp className="w-3 h-3" />
@@ -540,20 +539,20 @@ export default async function Home() {
                     <div className="flex items-center gap-2 text-[11px] text-zinc-400 mt-0.5">
                       <span className="font-mono text-zinc-500">{trace.span_id}</span>
                       <span>•</span>
-                      <span>{trace.time_str}</span>
+                      <span suppressHydrationWarning>{trace.time_str}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="col-span-2 sm:col-span-2 text-right font-mono tabular-nums text-zinc-300">
-                  {trace.tokens} <span className="text-[10px] text-zinc-500">tok</span>
+                <div suppressHydrationWarning className="col-span-2 sm:col-span-2 text-right font-mono tabular-nums text-zinc-300">
+                  {`${trace.tokens} tok`}
                 </div>
 
-                <div className="hidden sm:block sm:col-span-2 text-right font-mono tabular-nums text-zinc-300">
+                <div suppressHydrationWarning className="hidden sm:block sm:col-span-2 text-right font-mono tabular-nums text-zinc-300">
                   {trace.cost}
                 </div>
 
-                <div className={`col-span-3 sm:col-span-2 text-right font-mono tabular-nums ${trace.latency_color}`}>
+                <div suppressHydrationWarning className={`col-span-3 sm:col-span-2 text-right font-mono tabular-nums ${trace.latency_color}`}>
                   {trace.latency}
                 </div>
 
