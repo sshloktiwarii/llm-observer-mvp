@@ -66,12 +66,6 @@ export default function RootLayout({
                   Traces &amp; Spans
                 </Link>
                 <Link
-                  href="/integrations"
-                  className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 rounded-md hover:bg-zinc-900/40 transition-all"
-                >
-                  Integrations
-                </Link>
-                <Link
                   href="/settings"
                   className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-zinc-200 rounded-md hover:bg-zinc-900/40 transition-all"
                 >
