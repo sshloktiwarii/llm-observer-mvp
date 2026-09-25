@@ -226,6 +226,140 @@ func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// IngestPayload represents a flexible ingested event payload
+type IngestPayload struct {
+	TraceID              string   `json:"trace_id"`
+	SpanID               string   `json:"span_id"`
+	ParentSpanID         *string  `json:"parent_span_id,omitempty"`
+	Timestamp            string   `json:"timestamp"`
+	AgentID              string   `json:"agent_id"`
+	AgentName            string   `json:"agent_name"`
+	Model                string   `json:"model"`
+	ModelName            string   `json:"model_name"`
+	Provider             string   `json:"provider"`
+	Tokens               int      `json:"tokens"`
+	PromptTokens         int      `json:"prompt_tokens"`
+	CompletionTokens     int      `json:"completion_tokens"`
+	Cost                 float64  `json:"cost"`
+	CostUSD              float64  `json:"cost_usd"`
+	LatencyMs            int      `json:"latency_ms"`
+	StatusCode           int      `json:"status_code"`
+	Status               string   `json:"status"`
+	ErrorCode            *string  `json:"error_code,omitempty"`
+	ErrorMessage         *string  `json:"error_message,omitempty"`
+	RequestText          *string  `json:"request_text,omitempty"`
+	ResponseText         *string  `json:"response_text,omitempty"`
+	ProbableLoop         bool     `json:"probable_loop"`
+	PromptInjectionScore float64  `json:"prompt_injection_score"`
+}
+
+func (s *Server) handleIngest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var p IngestPayload
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	event := LLMEvent{
+		AgentID:              p.AgentID,
+		Model:                p.Model,
+		Provider:             p.Provider,
+		PromptTokens:         p.PromptTokens,
+		CompletionTokens:     p.CompletionTokens,
+		CostUSD:              p.CostUSD,
+		LatencyMs:            p.LatencyMs,
+		Status:               p.Status,
+		ErrorCode:            p.ErrorCode,
+		ErrorMessage:         p.ErrorMessage,
+		RequestText:          p.RequestText,
+		ResponseText:         p.ResponseText,
+		ProbableLoop:         p.ProbableLoop,
+		PromptInjectionScore: p.PromptInjectionScore,
+	}
+
+	if event.AgentID == "" {
+		event.AgentID = p.AgentName
+	}
+	if event.AgentID == "" {
+		event.AgentID = "default-agent"
+	}
+	if event.Model == "" {
+		event.Model = p.ModelName
+	}
+	if event.Model == "" {
+		event.Model = "unknown-model"
+	}
+	if event.Provider == "" {
+		event.Provider = "local"
+	}
+	if event.CostUSD == 0 && p.Cost > 0 {
+		event.CostUSD = p.Cost
+	}
+	if event.PromptTokens == 0 && event.CompletionTokens == 0 && p.Tokens > 0 {
+		event.PromptTokens = (p.Tokens * 3) / 4
+		event.CompletionTokens = p.Tokens - event.PromptTokens
+	}
+	if event.Status == "" {
+		if p.StatusCode != 0 {
+			if p.StatusCode >= 200 && p.StatusCode < 300 {
+				event.Status = "success"
+			} else {
+				event.Status = "error"
+			}
+		} else {
+			event.Status = "success"
+		}
+	}
+
+	// UUID parsing
+	if p.TraceID != "" {
+		if u, err := uuid.Parse(p.TraceID); err == nil {
+			event.TraceID = u
+		}
+	}
+	if event.TraceID == uuid.Nil {
+		event.TraceID = uuid.New()
+	}
+
+	if p.SpanID != "" {
+		if u, err := uuid.Parse(p.SpanID); err == nil {
+			event.SpanID = u
+		}
+	}
+	if event.SpanID == uuid.Nil {
+		event.SpanID = uuid.New()
+	}
+
+	if p.ParentSpanID != nil && *p.ParentSpanID != "" {
+		if u, err := uuid.Parse(*p.ParentSpanID); err == nil {
+			event.ParentSpanID = &u
+		}
+	}
+
+	if p.Timestamp != "" {
+		if t, err := time.Parse(time.RFC3339, p.Timestamp); err == nil {
+			event.Timestamp = t
+		}
+	}
+	if event.Timestamp.IsZero() {
+		event.Timestamp = time.Now()
+	}
+
+	s.batcher.AddEvent(event)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":   "accepted",
+		"trace_id": event.TraceID.String(),
+		"span_id":  event.SpanID.String(),
+	})
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
@@ -255,6 +389,7 @@ func main() {
 
 	http.HandleFunc("/api/v1/event", server.handleEvent)
 	http.HandleFunc("/api/v1/batch", server.handleBatch)
+	http.HandleFunc("/ingest", server.handleIngest)
 	http.HandleFunc("/health", server.handleHealth)
 
 	log.Println("Starting collection service on :8080")
