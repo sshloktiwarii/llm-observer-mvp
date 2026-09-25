@@ -15,6 +15,10 @@ build/
 dist/
 *.tsbuildinfo
 
+# IDE & Editors
+.vscode/
+.idea/
+
 # Operating System files
 .DS_Store
 *.pem
