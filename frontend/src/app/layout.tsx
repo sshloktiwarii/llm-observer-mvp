@@ -2,7 +2,8 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import Link from 'next/link';
-import { Activity, ChevronDown, Bell, Plus } from 'lucide-react';
+import { Activity, ChevronDown, Plus } from 'lucide-react';
+import { NotificationCenter } from '@/components/NotificationCenter';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -99,14 +100,8 @@ export default function RootLayout({
 
               <div className="h-4 w-[1px] bg-zinc-800"></div>
 
-              {/* Notification & Quick Filter */}
-              <button
-                type="button"
-                className="p-1.5 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900/70 rounded-md border border-transparent hover:border-zinc-800 transition-all relative cursor-pointer"
-              >
-                <Bell className="w-4 h-4" />
-                <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
-              </button>
+              {/* Notification & Alert Center */}
+              <NotificationCenter />
 
               <button
                 type="button"
