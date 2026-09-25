@@ -2,7 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import Link from 'next/link';
-import { Activity, ChevronDown, Plus } from 'lucide-react';
+import { Activity, Plus } from 'lucide-react';
 import { NotificationCenter } from '@/components/NotificationCenter';
 
 const inter = Inter({
@@ -86,16 +86,13 @@ export default function RootLayout({
                 <span className="text-zinc-400 font-mono text-[11px]">telemetry.stream: active</span>
               </div>
 
-              {/* Environment Selector */}
-              <div className="relative">
-                <button
-                  type="button"
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-zinc-900/50 border border-zinc-800 hover:border-zinc-700 text-xs text-zinc-200 hover:text-white transition-all cursor-pointer"
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  <span className="font-medium">production-us-east</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
-                </button>
+              {/* Environment Indicator */}
+              <div
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-zinc-900/50 border border-zinc-800 text-xs text-zinc-200 shadow-sm"
+                title="Active Telemetry Environment: Local Development Cluster (localhost:8080)"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                <span className="font-medium font-mono text-[11px]">local-dev</span>
               </div>
 
               <div className="h-4 w-[1px] bg-zinc-800"></div>
